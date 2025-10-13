@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Мониторинг ClickHouse</title>
+</head>
+<body>
+    <h1>Дашборд мониторинга ClickHouse</h1>
+
+    <div>
+        <h2>Статистика</h2>
+        <p>Всего запросов: {{ total_queries }}</p>
+        <p>Медленных запросов: {{ slow_queries }}</p>
+        <p>Активных инстансов: {{ instances.count }}</p>
+    </div>
+
+    <div>
+        <h2>Навигация</h2>
+        <ul>
+            <li><a href="{% url 'lab_dashboard' %}">Перейти в лабораторию запросов</a></li>
+            <li><a href="{% url 'admin:index' %}">Админ-панель</a></li>
+        </ul>
+    </div>
+</body>
+</html>
