@@ -11,10 +11,14 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv  # ← ДОБАВИТЬ
+
+# Загружаем environment variables из .env файла
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -27,7 +31,6 @@ DEBUG = True
 
 ALLOWED_HOSTS = []
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -38,7 +41,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'monitor',
-    'query_lab',
+    'query_lab'
+    # 'clickhouse_client',  # Не добавляем - это не Django app, а Python модуль
 ]
 
 MIDDLEWARE = [
@@ -70,7 +74,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
@@ -80,7 +83,6 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -100,7 +102,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
@@ -112,7 +113,6 @@ USE_I18N = True
 
 USE_TZ = True
 
-
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
@@ -123,7 +123,26 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-from .clickhouse_config import get_clickhouse_config, get_monitoring_config
+# ClickHouse Monitoring Configuration
+CLICKHOUSE_CONFIG = {
+    'default': {
+        'host': os.getenv('CLICKHOUSE_HOST', 'localhost'),
+        'port': int(os.getenv('CLICKHOUSE_PORT', 9000)),  # ← НАТИВНЫЙ TCP ПОРТ
+        'user': os.getenv('CLICKHOUSE_USER', 'default'),
+        'password': os.getenv('CLICKHOUSE_PASSWORD', ''),
+        'database': os.getenv('CLICKHOUSE_DATABASE', 'default'),
+        'secure': False,  # ← ОБЯЗАТЕЛЬНО ОТКЛЮЧАЕМ SSL для порта 9000
+        'verify': False,   # ← ОБЯЗАТЕЛЬНО ОТКЛЮЧАЕМ проверку SSL
+        'connect_timeout': int(os.getenv('CLICKHOUSE_CONNECT_TIMEOUT', 10)),
+        'send_receive_timeout': int(os.getenv('CLICKHOUSE_SEND_TIMEOUT', 300)),
+        'compression': False,
+    }
+}
 
-CLICKHOUSE_CONFIG = get_clickhouse_config()
-MONITORING_CONFIG = get_monitoring_config()
+# Monitoring settings
+MONITORING_CONFIG = {
+    'slow_query_threshold_ms': 1000,  # Ваш порог
+    'collection_interval_minutes': 5,  # Ваш интервал
+    'max_query_length': 10000,
+    'retention_days': 30,
+}
