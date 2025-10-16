@@ -1,24 +1,118 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Лаборатория запросов</title>
-</head>
-<body>
-    <h1>Лаборатория анализа запросов</h1>
+{% extends 'query_lab/base.html' %}
+{% load humanize %}
 
-    <div>
-        <h2>Статистика лаборатории</h2>
-        <p>Всего медленных запросов: {{ total_slow_queries }}</p>
-        <p>Новых запросов: {{ new_queries }}</p>
-        <p>В анализе: {{ in_analysis_queries }}</p>
+{% block title %}Дашборд лаборатории - Лаборатория запросов{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_queries }}</div>
+        <div class="stat-label">Всего запросов</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ new_queries }}</div>
+        <div class="stat-label">Новых запросов</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ my_queries }}</div>
+        <div class="stat-label">Мои запросы</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ status_stats|length }}</div>
+        <div class="stat-label">Статусов</div>
+    </div>
+</div>
+
+<div class="grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+    <!-- Статистика по статусам -->
+    <div class="card">
+        <h2>📈 Распределение по статусам</h2>
+        {% for stat in status_stats %}
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
+            <span class="status-badge status-{{ stat.get_status_display }}">
+                {{ stat.get_status_display }}
+            </span>
+            <strong>{{ stat.count }}</strong>
+        </div>
+        {% empty %}
+        <p>Нет данных о статусах</p>
+        {% endfor %}
     </div>
 
-    <div>
-        <h2>Навигация</h2>
-        <ul>
-            <li><a href="{% url 'monitor_dashboard' %}">Назад к мониторингу</a></li>
-            <li><a href="{% url 'admin:index' %}">Админ-панель</a></li>
-        </ul>
+    <!-- Статистика по категориям проблем -->
+    <div class="card">
+        <h2>🔍 Категории проблем</h2>
+        {% for stat in category_stats %}
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; padding: 0.5rem; background: #f8f9fa; border-radius: 4px;">
+            <span>{{ stat.get_problem_category_display }}</span>
+            <strong>{{ stat.count }}</strong>
+        </div>
+        {% empty %}
+        <p>Категории еще не назначены</p>
+        {% endfor %}
     </div>
-</body>
-</html>
+</div>
+
+<!-- Последние запросы -->
+<div class="card">
+    <h2>🕐 Последние запросы</h2>
+    {% for query in recent_queries %}
+    <div class="query-item {% if query.status == 'new' %}critical{% elif query.status == 'optimized' %}optimized{% endif %}">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+            <div>
+                <span class="status-badge status-{{ query.status }}">
+                    {{ query.get_status_display }}
+                </span>
+                <strong>
+                    <a href="{% url 'query_detail' query.id %}" style="color: #2c3e50; text-decoration: none;">
+                        Запрос #{{ query.id }}
+                    </a>
+                </strong>
+                {% if query.problem_category %}
+                <span style="margin-left: 1rem; color: #7f8c8d;">
+                    {{ query.get_problem_category_display }}
+                </span>
+                {% endif %}
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 1.2rem; font-weight: bold; color: #e74c3c;">
+                    {{ query.get_duration_seconds|floatformat:1 }}с
+                </div>
+                <div style="font-size: 0.8rem; color: #7f8c8d;">
+                    {{ query.created_at|date:"d.m.Y H:i" }}
+                </div>
+            </div>
+        </div>
+        
+        <div style="color: #7f8c8d; font-size: 0.9rem; margin-bottom: 0.5rem;">
+            👤 {{ query.query_log.user }} • 
+            📊 {{ query.query_log.read_rows|default:0 }} строк
+        </div>
+        
+        <div class="sql-code" style="font-size: 0.8rem;">
+{{ query.query_log.query_text|truncatewords:30 }}
+        </div>
+        
+        {% if query.assigned_to %}
+        <div style="font-size: 0.8rem; color: #3498db;">
+            🎯 Назначен: {{ query.assigned_to.get_full_name|default:query.assigned_to.username }}
+        </div>
+        {% else %}
+        <div style="font-size: 0.8rem; color: #e74c3c;">
+            ⚠️ Не назначен
+        </div>
+        {% endif %}
+    </div>
+    {% empty %}
+    <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+        📭 Нет запросов для анализа
+    </div>
+    {% endfor %}
+    
+    <div style="text-align: center; margin-top: 1rem;">
+        <a href="{% url 'query_list' %}" class="btn">
+            📋 Показать все запросы
+        </a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends 'query_lab/base.html' %}
+{% load humanize %}
+{% block title %}Все запросы - Лаборатория запросов{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>📋 Все запросы в лаборатории</h2>
+    
+    <!-- Фильтры -->
+    <div class="filter-bar">
+        <select class="filter-select" onchange="window.location.href = this.value">
+            <option value="?">Все статусы</option>
+            {% for status, label in status_choices %}
+            <option value="?status={{ status }}" {% if status_filter == status %}selected{% endif %}>
+                {{ label }}
+            </option>
+            {% endfor %}
+        </select>
+        
+        <select class="filter-select" onchange="window.location.href = this.value">
+            <option value="?">Все категории</option>
+            {% for category, label in category_choices %}
+            <option value="?category={{ category }}" {% if category_filter == category %}selected{% endif %}>
+                {{ label }}
+            </option>
+            {% endfor %}
+        </select>
+        
+        <select class="filter-select" onchange="window.location.href = this.value">
+            <option value="?">Все назначения</option>
+            <option value="?assigned=me" {% if assigned_filter == 'me' %}selected{% endif %}>Мои запросы</option>
+            <option value="?assigned=unassigned" {% if assigned_filter == 'unassigned' %}selected{% endif %}>Не назначенные</option>
+        </select>
+        
+        <div style="flex-grow: 1;"></div>
+        <span style="color: #7f8c8d;">
+            Найдено: {{ queries.count }} запросов
+        </span>
+    </div>
+
+    <!-- Таблица запросов -->
+    {% for query in queries %}
+    <div class="query-item {% if query.status == 'new' %}critical{% elif query.status == 'optimized' %}optimized{% endif %}">
+        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+            <div>
+                <span class="status-badge status-{{ query.status }}">
+                    {{ query.get_status_display }}
+                </span>
+                <strong>
+                    <a href="{% url 'query_detail' query.id %}" style="color: #2c3e50; text-decoration: none;">
+                        Запрос #{{ query.id }}
+                    </a>
+                </strong>
+                {% if query.problem_category %}
+                <span style="margin-left: 1rem; color: #7f8c8d;">
+                    {{ query.get_problem_category_display }}
+                </span>
+                {% endif %}
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 1.2rem; font-weight: bold; color: #e74c3c;">
+                    {{ query.get_duration_seconds|floatformat:1 }}с
+                </div>
+                <div style="font-size: 0.8rem; color: #7f8c8d;">
+                    {{ query.created_at|date:"d.m.Y H:i" }}
+                </div>
+            </div>
+        </div>
+        
+        <div style="color: #7f8c8d; font-size: 0.9rem; margin-bottom: 0.5rem;">
+            👤 {{ query.query_log.user }} • 
+            📊 {{ query.query_log.read_rows|default:0 }} строк
+            💾 {{ query.query_log.read_bytes|filesizeformat }}
+        </div>
+        
+        <div class="sql-code" style="font-size: 0.8rem;">
+{{ query.query_log.query_text|truncatewords:50 }}
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+            <div>
+                {% if query.assigned_to %}
+                <span style="font-size: 0.8rem; color: #3498db;">
+                    🎯 {{ query.assigned_to.get_full_name|default:query.assigned_to.username }}
+                </span>
+                {% else %}
+                <span style="font-size: 0.8rem; color: #e74c3c;">
+                    ⚠️ Не назначен
+                </span>
+                {% endif %}
+            </div>
+            <div>
+                <a href="{% url 'query_detail' query.id %}" class="btn">
+                    🔍 Анализировать
+                </a>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div style="text-align: center; padding: 3rem; color: #7f8c8d;">
+        <div style="font-size: 3rem; margin-bottom: 1rem;">📭</div>
+        <h3>Нет запросов</h3>
+        <p>Запросы, соответствующие выбранным фильтрам, не найдены</p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

@@ -41,7 +41,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'monitor',
-    'query_lab'
+    'query_lab',
+    'django.contrib.humanize',
     # 'clickhouse_client',  # Не добавляем - это не Django app, а Python модуль
 ]
 
