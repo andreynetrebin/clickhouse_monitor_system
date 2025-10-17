@@ -1,0 +1,198 @@
+{% extends 'query_lab/base.html' %}
+{% load humanize %}
+
+{% block title %}Аналитика - Лаборатория запросов{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>📊 Аналитика эффективности лаборатории</h1>
+    <p style="color: #7f8c8d; margin-bottom: 2rem;">
+        Период анализа: {{ start_date|date:"d.m.Y" }} - {{ end_date|date:"d.m.Y" }}
+    </p>
+</div>
+
+<!-- Ключевые метрики -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-number">{{ total_queries }}</div>
+        <div class="stat-label">Всего запросов</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ optimized_queries }}</div>
+        <div class="stat-label">Оптимизировано</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ optimization_rate|floatformat:1 }}%</div>
+        <div class="stat-label">Эффективность</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-number">{{ avg_improvement|floatformat:1 }}%</div>
+        <div class="stat-label">Среднее улучшение</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+    
+    <!-- Левая колонка -->
+    <div>
+        <!-- Топ успешных оптимизаций -->
+        <div class="card">
+            <h3>🚀 Топ успешных оптимизаций</h3>
+            {% for query in top_optimizations %}
+            <div style="border-left: 4px solid #27ae60; padding: 1rem; margin-bottom: 1rem; background: #f8f9fa; border-radius: 4px;">
+                <div style="display: flex; justify-content: between; align-items: start; margin-bottom: 0.5rem;">
+                    <div>
+                        <strong>
+                            <a href="{% url 'query_detail' query.id %}" style="color: #2c3e50;">
+                                Запрос #{{ query.id }}
+                            </a>
+                        </strong>
+                        <span style="margin-left: 1rem; color: #7f8c8d;">
+                            {{ query.get_problem_category_display }}
+                        </span>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 1.2rem; font-weight: bold; color: #27ae60;">
+                            +{{ query.actual_improvement|floatformat:1 }}%
+                        </div>
+                        <div style="font-size: 0.8rem; color: #7f8c8d;">
+                            {{ query.optimized_at|date:"d.m.Y" }}
+                        </div>
+                    </div>
+                </div>
+                <div class="sql-code" style="font-size: 0.7rem; margin: 0;">
+{{ query.query_log.query_text|truncatewords:20 }}
+                </div>
+            </div>
+            {% empty %}
+            <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                📭 Нет данных об оптимизациях
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Эффективность по аналитикам -->
+        <div class="card">
+            <h3>👥 Эффективность аналитиков</h3>
+            {% for analyst in analyst_performance %}
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid #ecf0f1;">
+                <div>
+                    <strong>{{ analyst.assigned_to__first_name }} {{ analyst.assigned_to__last_name|default:analyst.assigned_to__username }}</strong>
+                    <div style="font-size: 0.8rem; color: #7f8c8d;">
+                        {{ analyst.optimized }}/{{ analyst.total }} оптимизировано
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-weight: bold; color: #27ae60;">
+                        {% if analyst.avg_improvement %}
+                        +{{ analyst.avg_improvement|floatformat:1 }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </div>
+                    <div style="font-size: 0.8rem; color: #7f8c8d;">
+                        {{ analyst.optimized|floatformat:0 }}%
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                👥 Нет данных по аналитикам
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Правая колонка -->
+    <div>
+        <!-- Категории проблем -->
+        <div class="card">
+            <h3>🔍 Распределение по категориям</h3>
+            {% for category in problem_categories %}
+            <div style="margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
+                    <span>{{ category.get_problem_category_display }}</span>
+                    <strong>{{ category.count }}</strong>
+                </div>
+                <div style="background: #ecf0f1; height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="height: 100%; background: #3498db; width: {{ category.count|divisibleby:total_queries|floatformat:0 }}%;"></div>
+                </div>
+                {% if category.avg_improvement %}
+                <div style="font-size: 0.8rem; color: #7f8c8d; text-align: right;">
+                    +{{ category.avg_improvement|floatformat:1 }}% улучшение
+                </div>
+                {% endif %}
+            </div>
+            {% empty %}
+            <div style="text-align: center; padding: 1rem; color: #7f8c8d;">
+                📊 Нет данных по категориям
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Время анализа -->
+        <div class="card">
+            <h3>⏱️ Метрики времени</h3>
+            {% if analysis_time_stats.avg_analysis_days %}
+            <div style="text-align: center; padding: 1rem;">
+                <div style="font-size: 2rem; font-weight: bold; color: #3498db;">
+                    {{ analysis_time_stats.avg_analysis_days|floatformat:1 }}
+                </div>
+                <div style="color: #7f8c8d;">среднее время анализа (дни)</div>
+            </div>
+            {% else %}
+            <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                ⏰ Нет данных о времени анализа
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Ежедневные тренды -->
+<div class="card">
+    <h3>📈 Ежедневные тренды</h3>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #ecf0f1;">Дата</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Всего</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Оптимизировано</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Эффективность</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Улучшение</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for day in daily_trends %}
+                <tr style="border-bottom: 1px solid #ecf0f1;">
+                    <td style="padding: 0.75rem;">{{ day.day|date:"d.m.Y" }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">{{ day.total }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">{{ day.optimized }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if day.total %}
+                        {{ day.optimized|divisibleby:day.total|floatformat:1 }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if day.improvement %}
+                        +{{ day.improvement|floatformat:1 }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" style="padding: 2rem; text-align: center; color: #7f8c8d;">
+                        📊 Нет данных за выбранный период
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
