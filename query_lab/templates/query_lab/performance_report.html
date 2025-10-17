@@ -1,0 +1,107 @@
+{% extends 'query_lab/base.html' %}
+{% load humanize %}
+
+{% block title %}Отчет по производительности - Лаборатория запросов{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>📈 Отчет по производительности системы</h1>
+    <p style="color: #7f8c8d; margin-bottom: 2rem;">
+        Период анализа: {{ start_date|date:"d.m.Y" }} - {{ end_date|date:"d.m.Y" }}
+    </p>
+</div>
+
+<!-- Ежемесячные тренды -->
+<div class="card">
+    <h3>📅 Ежемесячные показатели</h3>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #ecf0f1;">Месяц</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Всего запросов</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Оптимизировано</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Эффективность</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Улучшение</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for month in monthly_trends %}
+                <tr style="border-bottom: 1px solid #ecf0f1;">
+                    <td style="padding: 0.75rem;">
+                        <strong>{{ month.month }}</strong>
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">{{ month.total }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">{{ month.optimized }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {{ month.optimization_rate|floatformat:1 }}%
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if month.improvement %}
+                        +{{ month.improvement|floatformat:1 }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" style="padding: 2rem; text-align: center; color: #7f8c8d;">
+                        📊 Нет данных за выбранный период
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Еженедельная статистика -->
+<div class="card">
+    <h3>📊 Еженедельная динамика</h3>
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #ecf0f1;">Неделя</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Всего</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Оптимизировано</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Улучшение</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Время анализа (дни)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for week in weekly_stats %}
+                <tr style="border-bottom: 1px solid #ecf0f1;">
+                    <td style="padding: 0.75rem;">
+                        {{ week.week|date:"d.m.Y" }}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">{{ week.total }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">{{ week.optimized }}</td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if week.avg_improvement %}
+                        +{{ week.avg_improvement|floatformat:1 }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if week.avg_analysis_days %}
+                        {{ week.avg_analysis_days|floatformat:1 }}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" style="padding: 2rem; text-align: center; color: #7f8c8d;">
+                        📊 Нет данных за выбранный период
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

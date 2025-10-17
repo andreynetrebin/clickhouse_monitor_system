@@ -1,0 +1,131 @@
+{% extends 'query_lab/base.html' %}
+{% load humanize %}
+
+{% block title %}Отчет по оптимизациям - Лаборатория запросов{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>📋 Отчет по оптимизациям</h1>
+    
+    <!-- Фильтры -->
+    <form method="get" style="background: #f8f9fa; padding: 1.5rem; border-radius: 4px; margin-bottom: 2rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Дата с:</label>
+                <input type="date" name="start_date" value="{{ filters.start_date }}" 
+                       style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Дата по:</label>
+                <input type="date" name="end_date" value="{{ filters.end_date }}"
+                       style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Категория:</label>
+                <select name="category" style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+                    <option value="">Все категории</option>
+                    {% for value, label in category_choices %}
+                    <option value="{{ value }}" {% if filters.category == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">Статус:</label>
+                <select name="status" style="width: 100%; padding: 0.5rem; border: 1px solid #bdc3c7; border-radius: 4px;">
+                    <option value="">Все статусы</option>
+                    {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+            <button type="submit" class="btn">🔍 Применить фильтры</button>
+            <a href="{% url 'optimization_report' %}" class="btn" style="background: #95a5a6;">🔄 Сбросить</a>
+            <a href="{% url 'export_optimizations_csv' %}?{{ request.GET.urlencode }}" class="btn" style="background: #27ae60;">📊 Экспорт CSV</a>
+        </div>
+    </form>
+
+    <!-- Статистика -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.total }}</div>
+            <div class="stat-label">Всего запросов</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.optimized }}</div>
+            <div class="stat-label">Оптимизировано</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.avg_improvement|floatformat:1 }}%</div>
+            <div class="stat-label">Среднее улучшение</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number">{{ stats.total_time_saved|floatformat:0 }}</div>
+            <div class="stat-label">Сэкономлено времени (мс)</div>
+        </div>
+    </div>
+</div>
+
+<!-- Детальная таблица -->
+<div class="card">
+    <h3>📊 Детализация оптимизаций</h3>
+    
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #ecf0f1;">ID</th>
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #ecf0f1;">Статус</th>
+                    <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid #ecf0f1;">Категория</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Улучшение</th>
+                    <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid #ecf0f1;">Аналитик</th>
+                    <th style="padding: 0.75rem; text-align: center; border-bottom: 2px solid #ecf0f1;">Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for query in queries %}
+                <tr style="border-bottom: 1px solid #ecf0f1;">
+                    <td style="padding: 0.75rem;">
+                        <strong>#{{ query.id }}</strong>
+                    </td>
+                    <td style="padding: 0.75rem;">
+                        <span class="status-badge status-{{ query.status }}">
+                            {{ query.get_status_display }}
+                        </span>
+                    </td>
+                    <td style="padding: 0.75rem;">
+                        {{ query.get_problem_category_display|default:"-" }}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if query.actual_improvement %}
+                        <span style="color: #27ae60; font-weight: bold;">+{{ query.actual_improvement|floatformat:1 }}%</span>
+                        {% else %}
+                        <span style="color: #7f8c8d;">-</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: right;">
+                        {% if query.assigned_to %}
+                            {{ query.assigned_to.get_full_name|default:query.assigned_to.username }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td style="padding: 0.75rem; text-align: center;">
+                        <a href="{% url 'query_detail' query.id %}" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+                            🔍 Просмотр
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" style="padding: 2rem; text-align: center; color: #7f8c8d;">
+                        📭 Нет запросов, соответствующих фильтрам
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

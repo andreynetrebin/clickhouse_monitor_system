@@ -235,21 +235,53 @@
     </div>
 
     <div class="nav">
-        <div class="container">
-            <a href="{% url 'lab_dashboard' %}" {% if request.resolver_match.url_name == 'lab_dashboard' %}class="active"{% endif %}>
-                📊 Дашборд
+    <div class="container">
+        <a href="{% url 'lab_dashboard' %}" {% if request.resolver_match.url_name == 'lab_dashboard' %}class="active"{% endif %}>
+            📊 Дашборд
+        </a>
+        <a href="{% url 'query_list' %}" {% if request.resolver_match.url_name == 'query_list' %}class="active"{% endif %}>
+            📋 Все запросы
+        </a>
+        <a href="{% url 'analytics_dashboard' %}" {% if request.resolver_match.url_name == 'analytics_dashboard' %}class="active"{% endif %}>
+            📈 Аналитика
+        </a>
+        <div style="display: inline-block; position: relative;">
+            <a href="#" style="background: #34495e;">
+                📋 Отчеты ▼
             </a>
-            <a href="{% url 'query_list' %}" {% if request.resolver_match.url_name == 'query_list' %}class="active"{% endif %}>
-                📋 Все запросы
-            </a>
-            <a href="{% url 'admin:index' %}" target="_blank">
-                ⚙️ Админка
-            </a>
-            <a href="{% url 'monitor_dashboard' %}">
-                📈 Мониторинг
-            </a>
+            <div style="position: absolute; top: 100%; left: 0; background: #2c3e50; min-width: 200px; border-radius: 0 0 4px 4px; display: none; z-index: 1000;">
+                <a href="{% url 'optimization_report' %}" style="display: block; padding: 0.75rem 1rem; border-bottom: 1px solid #34495e;">
+                    🚀 По оптимизациям
+                </a>
+                <a href="{% url 'performance_report' %}" style="display: block; padding: 0.75rem 1rem;">
+                    📈 По производительности
+                </a>
+            </div>
         </div>
+        <a href="{% url 'admin:index' %}" target="_blank">
+            ⚙️ Админка
+        </a>
+        <a href="{% url 'monitor_dashboard' %}">
+            📈 Мониторинг
+        </a>
     </div>
+</div>
+
+<script>
+    // Раскрывающееся меню для отчетов
+    document.addEventListener('DOMContentLoaded', function() {
+        const reportsDropdown = document.querySelector('.nav div[style*="position: relative"]');
+        const dropdownMenu = reportsDropdown.querySelector('div[style*="position: absolute"]');
+
+        reportsDropdown.addEventListener('mouseenter', function() {
+            dropdownMenu.style.display = 'block';
+        });
+
+        reportsDropdown.addEventListener('mouseleave', function() {
+            dropdownMenu.style.display = 'none';
+        });
+    });
+</script>
 
     <div class="container">
         {% block content %}
