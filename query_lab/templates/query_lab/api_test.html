@@ -1,0 +1,188 @@
+{% extends 'query_lab/base.html' %}
+
+{% block title %}Тестирование API анализа - Лаборатория запросов{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h1>🧪 Тестирование API анализа запросов</h1>
+    <p>Протестируйте анализ SQL запросов через API</p>
+</div>
+
+<div class="card">
+    <h3>📝 Введите SQL запрос для анализа</h3>
+
+    <form id="analyzeForm">
+        {% csrf_token %}
+        <div style="margin-bottom: 1rem;">
+            <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
+                SQL запрос:
+            </label>
+            <textarea id="queryInput"
+                      style="width: 100%; padding: 1rem; border: 1px solid #bdc3c7; border-radius: 4px; font-family: monospace; min-height: 150px;"
+                      placeholder="Введите SQL запрос для анализа...">SELECT * FROM users WHERE age != 30 AND name LIKE '%john%'</textarea>
+        </div>
+
+        <button type="submit" class="btn" style="background: #3498db;">
+            🔍 Анализировать запрос
+        </button>
+    </form>
+</div>
+
+<!-- Результаты анализа -->
+<div class="card" id="results" style="display: none;">
+    <h3>📊 Результаты анализа</h3>
+    <div id="analysisResults"></div>
+</div>
+
+<!-- Индикатор загрузки -->
+<div id="loading" style="display: none; text-align: center; padding: 2rem;">
+    <div style="font-size: 2rem;">⏳</div>
+    <p>Анализируем запрос...</p>
+</div>
+
+<script>
+document.getElementById('analyzeForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const query = document.getElementById('queryInput').value.trim();
+    if (!query) {
+        alert('Введите SQL запрос для анализа');
+        return;
+    }
+
+    // Показываем индикатор загрузки
+    document.getElementById('loading').style.display = 'block';
+    document.getElementById('results').style.display = 'none';
+
+    // Отправляем запрос к API
+    fetch('{% url "analyze_query_api" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            query: query
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Скрываем индикатор загрузки
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('results').style.display = 'block';
+
+        if (data.success) {
+            displayAnalysisResults(data);
+        } else {
+            document.getElementById('analysisResults').innerHTML = `
+                <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px;">
+                    <strong>Ошибка:</strong> ${data.error}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('analysisResults').innerHTML = `
+            <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px;">
+                <strong>Ошибка сети:</strong> ${error}
+            </div>
+        `;
+    });
+});
+
+function displayAnalysisResults(data) {
+    const resultsDiv = document.getElementById('analysisResults');
+    let html = '';
+
+    // Сводка
+    html += `
+        <div style="background: #2c3e50; color: white; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; text-align: center;">
+                <div>
+                    <div style="font-size: 1.5rem; font-weight: bold;">${data.analysis.summary.total_patterns}</div>
+                    <div style="font-size: 0.8rem;">Всего проблем</div>
+                </div>
+                <div>
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #e74c3c;">${data.analysis.summary.critical_count}</div>
+                    <div style="font-size: 0.8rem;">Критичных</div>
+                </div>
+                <div>
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #f39c12;">${data.analysis.summary.high_count}</div>
+                    <div style="font-size: 0.8rem;">Высоких</div>
+                </div>
+                <div>
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #3498db;">${data.analysis.summary.medium_count}</div>
+                    <div style="font-size: 0.8rem;">Средних</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Обнаруженные проблемы
+    if (data.analysis.detected_patterns.length > 0) {
+        html += `<h4>🔍 Обнаруженные проблемы:</h4>`;
+
+        data.analysis.detected_patterns.forEach(pattern => {
+            const priorityColor =
+                pattern.priority === 'critical' ? '#e74c3c' :
+                pattern.priority === 'high' ? '#f39c12' : '#3498db';
+
+            html += `
+                <div style="border-left: 4px solid ${priorityColor}; padding: 1rem; margin-bottom: 1rem; background: #f8f9fa; border-radius: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <strong>${pattern.name}</strong>
+                        <span style="padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; background: ${priorityColor}; color: white;">
+                            ${pattern.priority}
+                        </span>
+                    </div>
+                    <ul style="margin: 0; padding-left: 1.5rem;">
+            `;
+
+            pattern.recommendations.forEach(rec => {
+                html += `<li>${rec}</li>`;
+            });
+
+            html += `</ul></div>`;
+        });
+
+        // Шаблон оптимизированного запроса
+        html += `
+            <h4>🚀 Шаблон оптимизированного запроса:</h4>
+            <div class="sql-code" style="background: #d4edda; color: #155724; margin-bottom: 1rem;">
+                ${data.optimized_template}
+            </div>
+        `;
+    } else {
+        html += `
+            <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
+                <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
+                <h4>Проблемы не обнаружены</h4>
+                <p>Автоматический анализ не выявил явных проблем в запросе</p>
+            </div>
+        `;
+    }
+
+    // Лучшие практики
+    html += `<h4>📚 Лучшие практики ClickHouse:</h4>`;
+    data.best_practices.forEach(category => {
+        html += `
+            <div style="margin-bottom: 1rem;">
+                <strong>${category.category}:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem;">
+        `;
+        category.items.forEach(item => {
+            html += `<li>${item}</li>`;
+        });
+        html += `</ul></div>`;
+    });
+
+    resultsDiv.innerHTML = html;
+
+    // Применяем подсветку SQL
+    document.querySelectorAll('.sql-code').forEach(block => {
+        highlightSQL(block);
+    });
+}
+</script>
+{% endblock content %}
