@@ -3,12 +3,16 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Avg, Q, F, ExpressionWrapper, FloatField, Sum
 from django.db.models.functions import TruncDay, TruncWeek
 from django.utils import timezone
-from django.http import HttpResponse
-from datetime import timedelta
+from django.http import HttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views import View
+import json
+from datetime import datetime, timedelta
 import csv
-from datetime import datetime
 from .models import SlowQuery
 from .forms import QueryAnalysisForm, QueryOptimizationForm, ResultsForm
+from .optimization_guide import QueryOptimizationGuide
 
 
 @login_required
@@ -59,6 +63,16 @@ def query_detail(request, query_id):
     analysis_form = QueryAnalysisForm(instance=slow_query)
     optimization_form = QueryOptimizationForm(instance=slow_query)
     results_form = ResultsForm(instance=slow_query)
+
+    # Анализ запроса и генерация рекомендаций
+    query_analysis = QueryOptimizationGuide.analyze_query(slow_query.query_log.query_text)
+    best_practices = QueryOptimizationGuide.get_best_practices_checklist()
+
+    # Генерация шаблона оптимизированного запроса
+    optimized_template = QueryOptimizationGuide.generate_optimized_template(
+        slow_query.query_log.query_text,
+        query_analysis['detected_patterns']
+    )
 
     # Обработка быстрых действий
     if 'quick_action' in request.POST:
@@ -124,6 +138,9 @@ def query_detail(request, query_id):
         'analysis_form': analysis_form,
         'optimization_form': optimization_form,
         'results_form': results_form,
+        'query_analysis': query_analysis,
+        'best_practices': best_practices,
+        'optimized_template': optimized_template,
     }
     return render(request, 'query_lab/query_detail.html', context)
 
@@ -444,3 +461,75 @@ def performance_report(request):
         'end_date': end_date,
     }
     return render(request, 'query_lab/performance_report.html', context)
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class AnalyzeQueryAPI(View):
+    """API для анализа SQL запросов и получения рекомендаций по оптимизации"""
+
+    def post(self, request):
+        try:
+            # Парсим JSON данные
+            if request.content_type == 'application/json':
+                data = json.loads(request.body)
+                query_text = data.get('query', '')
+            else:
+                # Форма данных
+                query_text = request.POST.get('query', '')
+
+            if not query_text:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Query text is required'
+                }, status=400)
+
+            # Анализируем запрос
+            analysis = QueryOptimizationGuide.analyze_query(query_text)
+
+            # Генерируем шаблон оптимизированного запроса
+            optimized_template = QueryOptimizationGuide.generate_optimized_template(
+                query_text,
+                analysis['detected_patterns']
+            )
+
+            response_data = {
+                'success': True,
+                'query': query_text,
+                'analysis': analysis,
+                'optimized_template': optimized_template,
+                'best_practices': QueryOptimizationGuide.get_best_practices_checklist()
+            }
+
+            return JsonResponse(response_data)
+
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid JSON format'
+            }, status=400)
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'error': f'Server error: {str(e)}'
+            }, status=500)
+
+    def get(self, request):
+        """GET метод для тестирования API"""
+        return JsonResponse({
+            'message': 'Use POST method to analyze SQL queries',
+            'example_request': {
+                'method': 'POST',
+                'content_type': 'application/json',
+                'body': {
+                    'query': 'SELECT * FROM users WHERE age != 30'
+                }
+            },
+            'endpoints': {
+                'analyze': '/lab/api/analyze-query/',
+                'documentation': 'https://clickhouse.com/docs/en/sql-reference/statements/select/'
+            }
+        })
+
+def api_test_page(request):
+    """Тестовая страница для API анализа запросов"""
+    return render(request, 'query_lab/api_test.html')

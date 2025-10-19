@@ -258,6 +258,9 @@
                 </a>
             </div>
         </div>
+        <a href="{% url 'api_test_page' %}" {% if request.resolver_match.url_name == 'api_test_page' %}class="active"{% endif %}>
+            🧪 API тест
+        </a>
         <a href="{% url 'admin:index' %}" target="_blank">
             ⚙️ Админка
         </a>

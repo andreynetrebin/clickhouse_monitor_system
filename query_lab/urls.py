@@ -10,4 +10,6 @@ urlpatterns = [
     path('reports/optimizations/', views.optimization_report, name='optimization_report'),
     path('reports/performance/', views.performance_report, name='performance_report'),
     path('reports/export/csv/', views.export_optimizations_csv, name='export_optimizations_csv'),
+    path('api/analyze-query/', views.AnalyzeQueryAPI.as_view(), name='analyze_query_api'),
+    path('api-test/', views.api_test_page, name='api_test_page'),
 ]
