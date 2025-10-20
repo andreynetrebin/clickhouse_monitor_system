@@ -195,6 +195,98 @@
             </div>
             {% endif %}
 
+    <!-- Расширенный анализ с EXPLAIN -->
+    <div class="card">
+        <h3>🔬 Расширенный анализ (EXPLAIN)</h3>
+
+        {% if advanced_analysis.error %}
+        <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px;">
+            <strong>Ошибка расширенного анализа:</strong> {{ advanced_analysis.error }}
+        </div>
+        {% else %}
+
+        <!-- План выполнения -->
+        {% if advanced_analysis.explain_analysis.plan_steps %}
+        <div style="margin-bottom: 2rem;">
+            <h4>📋 План выполнения (EXPLAIN PLAN):</h4>
+            <div style="background: #2c3e50; color: white; padding: 1rem; border-radius: 4px; font-family: monospace;">
+                {% for step in advanced_analysis.explain_analysis.plan_steps %}
+                <div style="margin-bottom: 0.5rem;">{{ step }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Pipeline -->
+        {% if advanced_analysis.explain_analysis.pipeline_steps %}
+        <div style="margin-bottom: 2rem;">
+            <h4>⚙️ Pipeline (EXPLAIN PIPELINE):</h4>
+            <div style="background: #34495e; color: white; padding: 1rem; border-radius: 4px; font-family: monospace;">
+                {% for step in advanced_analysis.explain_analysis.pipeline_steps %}
+                <div style="margin-bottom: 0.5rem;">{{ step }}</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Предупреждения -->
+        {% if advanced_analysis.warnings %}
+        <div style="margin-bottom: 2rem;">
+            <h4>⚠️ Предупреждения выполнения:</h4>
+            {% for warning in advanced_analysis.warnings %}
+            <div style="border-left: 4px solid
+                {% if warning.priority == 'high' %}#e74c3c
+                {% elif warning.priority == 'medium' %}#f39c12
+                {% else %}#3498db{% endif %};
+                padding: 1rem; margin-bottom: 1rem; background: #f8f9fa; border-radius: 4px;">
+                <strong>{{ warning.message }}</strong>
+                <div style="font-size: 0.8rem; color: #7f8c8d;">
+                    Тип: {{ warning.type }} | Приоритет: {{ warning.priority }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Анализ таблиц -->
+        {% if advanced_analysis.table_analysis %}
+        <div style="margin-bottom: 2rem;">
+            <h4>📊 Анализ таблиц:</h4>
+            {% for table_name, stats in advanced_analysis.table_analysis.items %}
+            {% if stats and 'error' not in stats %}
+            <div style="border: 1px solid #ecf0f1; padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
+                <strong>{{ table_name }}</strong>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; margin-top: 0.5rem;">
+                    <div>
+                        <small>Движок:</small><br>
+                        <strong>{{ stats.engine }}</strong>
+                    </div>
+                    <div>
+                        <small>Строк:</small><br>
+                        <strong>{{ stats.total_rows|intcomma }}</strong>
+                    </div>
+                    <div>
+                        <small>Размер:</small><br>
+                        <strong>{{ stats.size_gb|floatformat:2 }} GB</strong>
+                    </div>
+                    <div>
+                        <small>Партиции:</small><br>
+                        <strong>{{ stats.partition_key|default:"нет" }}</strong>
+                    </div>
+                    <div>
+                        <small>Сортировка:</small><br>
+                        <strong>{{ stats.sorting_key|default:"нет" }}</strong>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% endif %}
+    </div>
+
             <!-- Общие рекомендации -->
             <div>
                 <h4>📚 Общие рекомендации по оптимизации:</h4>
