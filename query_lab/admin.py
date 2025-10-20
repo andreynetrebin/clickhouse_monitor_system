@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import SlowQuery
+from .models import SlowQuery, QueryAnalysisResult, TableAnalysis, IndexRecommendation
+
 
 
 @admin.register(SlowQuery)
@@ -37,3 +38,27 @@ class SlowQueryAdmin(admin.ModelAdmin):
         return f"{obj.get_duration_seconds():.1f}с"
 
     get_duration_seconds.short_description = 'Длительность'
+
+    @admin.register(QueryAnalysisResult)
+    class QueryAnalysisResultAdmin(admin.ModelAdmin):
+        list_display = ['query_log', 'complexity_score', 'has_full_scan', 'analyzed_at']
+        list_filter = ['has_full_scan', 'has_sorting', 'analyzed_at']
+        readonly_fields = ['analyzed_at']
+        search_fields = ['query_log__query_text']
+
+    @admin.register(TableAnalysis)
+    class TableAnalysisAdmin(admin.ModelAdmin):
+        list_display = ['table_name', 'database', 'engine', 'total_rows', 'get_size_gb']
+        list_filter = ['engine', 'database']
+        search_fields = ['table_name']
+
+        def get_size_gb(self, obj):
+            return f"{obj.get_size_gb():.2f} GB"
+
+        get_size_gb.short_description = 'Размер'
+
+    @admin.register(IndexRecommendation)
+    class IndexRecommendationAdmin(admin.ModelAdmin):
+        list_display = ['table_analysis', 'column_name', 'index_type', 'expected_improvement', 'implemented']
+        list_filter = ['index_type', 'analysis_source', 'implemented', 'created_at']
+        search_fields = ['table_analysis__table_name', 'column_name']

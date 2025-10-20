@@ -10,9 +10,12 @@ from django.views import View
 import json
 from datetime import datetime, timedelta
 import csv
-from .models import SlowQuery
+from .advanced_analyzer import AdvancedQueryAnalyzer
+from .models import SlowQuery, TableAnalysis, IndexRecommendation
 from .forms import QueryAnalysisForm, QueryOptimizationForm, ResultsForm
 from .optimization_guide import QueryOptimizationGuide
+from .analysis_service import analysis_service
+from clickhouse_client import ClickHouseClient
 
 
 @login_required
@@ -59,6 +62,8 @@ def query_detail(request, query_id):
         SlowQuery.objects.select_related('query_log', 'assigned_to'),
         id=query_id
     )
+    # Сохраняем/получаем анализ
+    analysis_result = analysis_service.analyze_and_save(slow_query.query_log)
 
     analysis_form = QueryAnalysisForm(instance=slow_query)
     optimization_form = QueryOptimizationForm(instance=slow_query)
@@ -132,6 +137,16 @@ def query_detail(request, query_id):
             slow_query.save()
             return redirect('query_detail', query_id=query_id)
 
+    # Расширенный анализ с EXPLAIN
+    advanced_analysis = {}
+    try:
+
+        with ClickHouseClient('default') as client:
+            analyzer = AdvancedQueryAnalyzer(client)
+            advanced_analysis = analyzer.analyze_with_explain(slow_query.query_log.query_text)
+    except Exception as e:
+        advanced_analysis = {'error': f'Advanced analysis failed: {str(e)}'}
+
     context = {
         'sq': slow_query,
         'query_log': slow_query.query_log,
@@ -141,6 +156,14 @@ def query_detail(request, query_id):
         'query_analysis': query_analysis,
         'best_practices': best_practices,
         'optimized_template': optimized_template,
+        'advanced_analysis': advanced_analysis,
+        'analysis_result': analysis_result,
+        'table_analysis': TableAnalysis.objects.filter(
+            table_name__in=analysis_result.table_stats.keys()
+        ) if analysis_result else [],
+        'index_recommendations': IndexRecommendation.objects.filter(
+            table_analysis__table_name__in=analysis_result.table_stats.keys()
+        ) if analysis_result else [],
     }
     return render(request, 'query_lab/query_detail.html', context)
 
