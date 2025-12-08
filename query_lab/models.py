@@ -36,8 +36,15 @@ class SlowQuery(models.Model):
 
     # Оптимизация
     optimized_query = models.TextField(blank=True, verbose_name="Оптимизированный запрос")
+    optimized_query_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        db_index=True,
+        verbose_name="Хеш оптимизированного запроса"
+    )
     optimization_notes = models.TextField(blank=True, verbose_name="Объяснение оптимизации")
     expected_improvement = models.FloatField(null=True, blank=True, verbose_name="Ожидаемое улучшение (%)")
+
 
     # Результаты
     actual_improvement = models.FloatField(null=True, blank=True, verbose_name="Фактическое улучшение (%)")

@@ -1,5 +1,6 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.db.models import Count, Avg, Q, F, ExpressionWrapper, FloatField, Sum
 from django.db.models.functions import TruncDay, TruncWeek
 from django.utils import timezone
@@ -556,3 +557,39 @@ class AnalyzeQueryAPI(View):
 def api_test_page(request):
     """Тестовая страница для API анализа запросов"""
     return render(request, 'query_lab/api_test.html')
+
+
+def analyze_query(request, slow_query_id):
+    slow_query = get_object_or_404(SlowQuery, id=slow_query_id)
+    query_log = slow_query.query_log
+
+    try:
+        # Получаем ClickHouse-клиент
+        instance = ClickHouseInstance.objects.get(name='default')
+        with ClickHouseClient(instance.name) as client:
+            analyzer = AdvancedQueryAnalyzer(client)
+            analysis = analyzer.analyze_with_explain(query_log.query_text)
+
+        # Сохраняем результат
+        QueryAnalysisResult.objects.update_or_create(
+            query_log=query_log,
+            defaults={
+                'complexity_score': analysis.get('complexity_score', 0),
+                'has_full_scan': analysis.get('explain_analysis', {}).get('has_full_scan', False),
+                'has_sorting': analysis.get('explain_analysis', {}).get('has_sorting', False),
+                'has_aggregation': analysis.get('explain_analysis', {}).get('has_aggregation', False),
+                'pipeline_complexity': analysis.get('explain_analysis', {}).get('pipeline_complexity', 0),
+                'table_stats': analysis.get('table_analysis', {}),
+                'recommendations': analysis.get('recommendations', []),
+                'warnings': analysis.get('warnings', []),
+                'explain_plan': analysis.get('explain_output', ''),
+                'explain_pipeline': analysis.get('explain_pipeline', []),
+            }
+        )
+
+        messages.success(request, "✅ Анализ успешно завершён")
+    except Exception as e:
+        messages.error(request, f"❌ Ошибка анализа: {e}")
+
+    return redirect('query_lab:query_detail', query_id=slow_query_id)
+    # return redirect('query_lab:slow_query_detail', slow_query_id)

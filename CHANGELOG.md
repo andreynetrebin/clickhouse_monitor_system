@@ -1,11 +1,31 @@
 # Changelog
 
-Все значимые изменения в этом проекте будут документироваться в этом файле.
-
-Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/),
-и проект придерживается [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
+
+### Добавлено
+- **Анализ через EXPLAIN indexes = 1** — основной источник данных для рекомендаций
+- **Создание QueryPattern** — группировка запросов по `normalized_query_hash` из ClickHouse
+- **Единая карточка запроса** в лаборатории на шаблон, а не на запуск
+- **Кнопка «Анализировать»** — запуск EXPLAIN и генерации рекомендаций по запросу
+
+### Улучшено
+- **Модель SlowQuery**: добавлено поле `optimized_query_hash` для сравнения «до/после»
+- **Шаблон query_detail.html**: упрощён, убраны несуществующие partials, добавлена кнопка анализа
+- **AdvancedQueryAnalyzer**: теперь использует только `EXPLAIN indexes = 1` для всех метрик
+- **Команда collect_metrics**: корректно создаёт SlowQuery только для новых шаблонов
+
+### Исправлено
+- **NoReverseMatch 'query_lab'**: добавлен `app_name = 'query_lab'` в urls.py
+- **TemplateDoesNotExist**: удалены ссылки на несуществующие partial-шаблоны
+- **NameError 'messages'**: добавлен импорт `from django.contrib import messages`
+- **NoReverseMatch 'slow_query_detail'**: заменено на существующий маршрут `query_detail`
+- **Ошибки парсинга кириллицы**: переход на анализ через `EXPLAIN indexes = 1`, а не через поиск в тексте
+
+### Удалено
+- Зависимость от `sqlglot` для анализа (временно отложена из-за RecursionError)
+- Частичные шаблоны (`partials/`) — пока не реализованы
+
+## [0.6.0] - 2025-10-19
 
 ### Добавлено
 - Система автоматических рекомендаций по оптимизации запросов
