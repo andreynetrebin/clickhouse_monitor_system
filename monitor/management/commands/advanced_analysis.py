@@ -107,13 +107,13 @@ class Command(BaseCommand):
         self.stdout.write(f"Анализ запроса #{query_log.id} ({query_log.duration_ms}ms)")
         self.stdout.write(f"{'=' * 60}")
 
-        # Проверяем тип запроса
-        query_type = self.detect_query_type(query_log.query_text)
+        # Проверяем тип запроса и извлекаем SELECT часть если нужно
+        query_type, analysis_query = self.prepare_query_for_analysis(query_log.query_text)
         self.stdout.write(f"Тип запроса: {query_type}")
 
         # Пропускаем не-SELECT запросы если не включена опция analyze_non_select
         skip_non_select = not analyze_non_select
-        if skip_non_select and query_type != 'SELECT':
+        if skip_non_select and query_type not in ['SELECT', 'INSERT_SELECT']:
             self.stdout.write(self.style.WARNING(
                 f"⚠️  Пропуск {query_type} запроса (только SELECT поддерживает EXPLAIN)"
             ))
@@ -125,9 +125,13 @@ class Command(BaseCommand):
         start_time = time.time()
 
         try:
-            # Выполняем анализ - передаем query_text в метод экземпляра
-            analysis = analyzer.analyze_with_explain(query_log.query_text)
+            # Выполняем анализ - передаем подготовленный запрос
+            analysis = analyzer.analyze_with_explain(analysis_query)
             analysis_duration_ms = (time.time() - start_time) * 1000
+
+            # Добавляем информацию о типе запроса в анализ
+            analysis['original_query_type'] = query_type
+            analysis['analyzed_query_type'] = 'SELECT' if query_type == 'INSERT_SELECT' else query_type
 
             # Сохраняем результаты анализа
             analysis_result = self.save_analysis_results(query_log, analysis, analysis_duration_ms, query_type)
@@ -137,7 +141,7 @@ class Command(BaseCommand):
                 self.save_table_analysis(analysis['table_analysis'], query_log)
 
             # Выводим результаты
-            self.print_analysis_results(analysis, analysis_result)
+            self.print_analysis_results(analysis, analysis_result, query_type)
 
             self.stdout.write(self.style.SUCCESS(
                 f"✓ Анализ сохранен (ID: {analysis_result.id}, время: {analysis_duration_ms:.1f}ms)"
@@ -149,6 +153,51 @@ class Command(BaseCommand):
             # Сохраняем информацию об ошибке
             self.save_error_analysis(query_log, str(e), query_type)
 
+    def prepare_query_for_analysis(self, query_text):
+        """
+        Подготавливает запрос для анализа: определяет тип и извлекает SELECT часть если нужно
+        """
+        if not query_text:
+            return 'UNKNOWN', query_text
+
+        # Очищаем запрос от комментариев и лишних пробелов
+        cleaned_query = self.clean_query(query_text)
+        query_upper = cleaned_query.upper().strip()
+
+        # Определяем тип запроса
+        query_type = self.detect_query_type(cleaned_query)
+
+        # Если это INSERT ... SELECT, извлекаем SELECT часть
+        if query_type == 'INSERT_SELECT':
+            select_part = self.extract_select_from_insert(cleaned_query)
+            if select_part:
+                return 'INSERT_SELECT', select_part
+            else:
+                return 'INSERT', cleaned_query  # Не смогли извлечь SELECT
+
+        # Для других типов возвращаем как есть
+        return query_type, cleaned_query
+
+    def clean_query(self, query_text):
+        """
+        Очищает запрос от комментариев и лишних пробелов, сохраняя структуру CTE
+        """
+        if not query_text:
+            return ""
+
+        # Удаляем блочные комментарии /* ... */
+        cleaned = re.sub(r'/\*.*?\*/', '', query_text, flags=re.DOTALL)
+        # Удаляем строчные комментарии --
+        cleaned = re.sub(r'--.*$', '', cleaned, flags=re.MULTILINE)
+
+        # Сохраняем переносы строк в CTE для лучшего парсинга
+        # Заменяем множественные пробелы на один, но сохраняем ключевые переносы
+        cleaned = re.sub(r'[ \t]+', ' ', cleaned)
+        # Убираем лишние пробелы вокруг скобок и запятых
+        cleaned = re.sub(r'\s*([(),])\s*', r'\1', cleaned)
+
+        return cleaned.strip()
+
     def detect_query_type(self, query_text):
         """
         Определяет тип SQL запроса
@@ -156,41 +205,133 @@ class Command(BaseCommand):
         if not query_text:
             return 'UNKNOWN'
 
-        # Берем первые 50 символов для определения типа
-        query_clean = query_text.strip().upper()[:50]
+        # Очищаем запрос
+        cleaned = self.clean_query(query_text)
+        query_upper = cleaned.upper()[:200]  # Берем больше символов для анализа CTE
 
-        # Убираем комментарии и лишние пробелы
-        query_clean = re.sub(r'/\*.*?\*/', '', query_clean)  # удаляем блочные комментарии
-        query_clean = re.sub(r'--.*$', '', query_clean)  # удаляем строчные комментарии
-        query_clean = query_clean.strip()
+        # Проверяем наличие WITH в начале (может быть CTE перед любым запросом)
+        has_cte = query_upper.startswith('WITH') or ' WITH ' in query_upper
 
-        if query_clean.startswith('SELECT'):
+        if query_upper.startswith('SELECT'):
             return 'SELECT'
-        elif query_clean.startswith('INSERT'):
+        elif query_upper.startswith('INSERT'):
+            # Проверяем различные паттерны INSERT
+            if has_cte or ' SELECT ' in query_upper:
+                return 'INSERT_SELECT'
+            elif ' VALUES ' in query_upper:
+                return 'INSERT_VALUES'
             return 'INSERT'
-        elif query_clean.startswith('UPDATE'):
+        elif query_upper.startswith('UPDATE'):
             return 'UPDATE'
-        elif query_clean.startswith('DELETE'):
+        elif query_upper.startswith('DELETE'):
             return 'DELETE'
-        elif query_clean.startswith('CREATE'):
+        elif query_upper.startswith('CREATE'):
             return 'CREATE'
-        elif query_clean.startswith('ALTER'):
+        elif query_upper.startswith('ALTER'):
             return 'ALTER'
-        elif query_clean.startswith('DROP'):
+        elif query_upper.startswith('DROP'):
             return 'DROP'
-        elif query_clean.startswith('OPTIMIZE'):
+        elif query_upper.startswith('OPTIMIZE'):
             return 'OPTIMIZE'
-        elif query_clean.startswith('SHOW'):
+        elif query_upper.startswith('SHOW'):
             return 'SHOW'
-        elif query_clean.startswith('DESCRIBE') or query_clean.startswith('DESC'):
+        elif query_upper.startswith('DESCRIBE') or query_upper.startswith('DESC'):
             return 'DESCRIBE'
-        elif query_clean.startswith('EXPLAIN'):
+        elif query_upper.startswith('EXPLAIN'):
             return 'EXPLAIN'
         else:
             # Пытаемся определить по ключевым словам
-            if 'FROM' in query_clean and ('WHERE' in query_clean or 'JOIN' in query_clean):
-                return 'SELECT'  # вероятно SELECT без ключевого слова в начале
+            if 'FROM' in query_upper and ('WHERE' in query_upper or 'JOIN' in query_upper):
+                return 'SELECT'
             return 'OTHER'
+
+    def extract_select_from_insert(self, query_text):
+        """
+        Извлекает SELECT часть из INSERT ... SELECT запроса, включая CTE
+        """
+        try:
+            # Удаляем комментарии для упрощения анализа
+            cleaned_query = self.clean_query(query_text)
+            query_upper = cleaned_query.upper()
+
+            # Ищем позицию начала INSERT и конец описания вставки
+            insert_pattern = r'INSERT\s+INTO\s+[^(]*(?:\s*\([^)]*\))?\s*'
+            insert_match = re.search(insert_pattern, cleaned_query, re.IGNORECASE | re.DOTALL)
+
+            if not insert_match:
+                return None
+
+            # Получаем часть запроса после INSERT INTO ...
+            after_insert = cleaned_query[insert_match.end():].strip()
+
+            # Проверяем различные варианты:
+
+            # 1. Случай: INSERT ... WITH ... SELECT
+            if after_insert.upper().startswith('WITH'):
+                # Весь запрос после WITH - это CTE + SELECT, который можно анализировать
+                return after_insert
+
+            # 2. Случай: INSERT ... SELECT (прямой SELECT)
+            select_pos = after_insert.upper().find('SELECT')
+            if select_pos != -1:
+                select_part = after_insert[select_pos:]
+                # Проверяем, что это валидный SELECT (имеет FROM или является подзапросом)
+                if self.is_valid_select(select_part):
+                    return select_part
+
+            # 3. Случай: INSERT ... (VALUES) - не поддерживается для EXPLAIN
+            if after_insert.upper().startswith('VALUES'):
+                return None
+
+            # 4. Пытаемся найти любой допустимый для EXPLAIN паттерн
+            # Ищем WITH в начале всего запроса (может быть перед INSERT)
+            whole_query_with_pos = query_upper.find('WITH')
+            if whole_query_with_pos != -1 and whole_query_with_pos < insert_match.start():
+                # WITH находится перед INSERT - извлекаем все с WITH
+                return cleaned_query[whole_query_with_pos:]
+
+            # 5. Если не нашли явный SELECT, но есть другие конструкции
+            # Проверяем наличие CTE паттернов
+            cte_patterns = [
+                r'WITH\s+[\w"]+\s+AS\s*\([^)]+\)',
+                r',\s*[\w"]+\s+AS\s*\([^)]+\)'
+            ]
+
+            for pattern in cte_patterns:
+                if re.search(pattern, after_insert, re.IGNORECASE):
+                    # Нашли CTE - возвращаем часть после INSERT
+                    return after_insert
+
+            return None
+
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Ошибка извлечения SELECT из INSERT: {e}"))
+            return None
+
+    def is_valid_select(self, query_part):
+        """
+        Проверяет, является ли часть запроса валидным SELECT для EXPLAIN
+        """
+        query_upper = query_part.upper()
+
+        # Должен содержать SELECT в начале
+        if not query_upper.startswith('SELECT'):
+            return False
+
+        # Должен содержать хотя бы один из ключевых элементов
+        required_keywords = ['FROM', 'WHERE', 'JOIN', 'UNION', 'INTERSECT', 'EXCEPT']
+
+        for keyword in required_keywords:
+            if keyword in query_upper:
+                return True
+
+        # Или это может быть подзапрос в CTE
+        if 'WITH' in query_upper:
+            return True
+
+        # Или это может быть простой SELECT без FROM (например, SELECT 1)
+        # Но такие запросы редко бывают в INSERT, так что лучше пропустить
+        return False
 
     def save_basic_analysis(self, query_log, query_type):
         """
@@ -291,6 +432,10 @@ class Command(BaseCommand):
             'explain_plan': analysis.get('explain_output', ''),
             'explain_pipeline': analysis.get('explain_pipeline', []),
 
+            # Дополнительная информация о типе запроса
+            'original_query_type': analysis.get('original_query_type', query_type),
+            'analyzed_query_type': analysis.get('analyzed_query_type', query_type),
+
             # Производительность
             'estimated_improvement': analysis.get('estimated_improvement'),
             'analysis_duration_ms': analysis_duration_ms,
@@ -387,10 +532,17 @@ class Command(BaseCommand):
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"    Ошибка создания рекомендации индекса: {e}"))
 
-    def print_analysis_results(self, analysis, analysis_result):
+    def print_analysis_results(self, analysis, analysis_result, query_type):
         """
         Вывод результатов анализа
         """
+        # Показываем информацию о типе запроса
+        original_type = analysis.get('original_query_type', query_type)
+        analyzed_type = analysis.get('analyzed_query_type', query_type)
+
+        if original_type != analyzed_type:
+            self.stdout.write(f"📝 Анализируется {analyzed_type} часть из {original_type} запроса")
+
         if analysis.get('explain_analysis', {}).get('has_full_scan'):
             self.stdout.write(self.style.WARNING("⚠️  Обнаружено полносканирование"))
 
