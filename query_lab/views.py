@@ -12,12 +12,15 @@ import json
 from datetime import datetime, timedelta
 import csv
 from .advanced_analyzer import AdvancedQueryAnalyzer
-from .models import SlowQuery, TableAnalysis, IndexRecommendation
+from .models import SlowQuery, TableAnalysis, IndexRecommendation, QueryAnalysisResult
+from monitor.models import ClickHouseInstance
 from .forms import QueryAnalysisForm, QueryOptimizationForm, ResultsForm
 from .optimization_guide import QueryOptimizationGuide
 from .analysis_service import analysis_service
 from clickhouse_client import ClickHouseClient
 
+import logging
+logger = logging.getLogger(__name__)
 
 @login_required
 def lab_dashboard(request):
@@ -559,18 +562,18 @@ def api_test_page(request):
     return render(request, 'query_lab/api_test.html')
 
 
+
+
 def analyze_query(request, slow_query_id):
     slow_query = get_object_or_404(SlowQuery, id=slow_query_id)
     query_log = slow_query.query_log
 
     try:
-        # Получаем ClickHouse-клиент
         instance = ClickHouseInstance.objects.get(name='default')
         with ClickHouseClient(instance.name) as client:
             analyzer = AdvancedQueryAnalyzer(client)
             analysis = analyzer.analyze_with_explain(query_log.query_text)
 
-        # Сохраняем результат
         QueryAnalysisResult.objects.update_or_create(
             query_log=query_log,
             defaults={
@@ -586,10 +589,10 @@ def analyze_query(request, slow_query_id):
                 'explain_pipeline': analysis.get('explain_pipeline', []),
             }
         )
-
         messages.success(request, "✅ Анализ успешно завершён")
     except Exception as e:
-        messages.error(request, f"❌ Ошибка анализа: {e}")
+        error_msg = f"Ошибка анализа: {e}"
+        logger.error(error_msg, exc_info=True)
+        messages.error(request, error_msg)  # Убедитесь, что шаблон отображает сообщения
 
     return redirect('query_lab:query_detail', query_id=slow_query_id)
-    # return redirect('query_lab:slow_query_detail', slow_query_id)

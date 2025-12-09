@@ -15,23 +15,29 @@ class AdvancedQueryAnalyzer:
         self.client = client
 
     def get_explain_plan(self, query: str) -> Dict:
+        """
+        Надёжный анализ запроса через EXPLAIN indexes = 1.
+        Дополнительные EXPLAIN (PLAN, PIPELINE) — опциональны.
+        """
         try:
-            # Убираем точку с запятой, если есть
             query = query.strip().rstrip(';')
 
-            # 1. EXPLAIN indexes = 1 — для анализа партиций и индексов
-            indexes_result = self.client.execute_query(f"EXPLAIN indexes = 1 {query}")
-            indexes_lines = [step[0] for step in indexes_result.data] if indexes_result.data else []
+            # Унифицированная функция безопасного выполнения EXPLAIN
+            def safe_explain(explain_type: str) -> List[str]:
+                try:
+                    result = self.client.execute_query(f"EXPLAIN {explain_type} {query}")
+                    return [step[0] for step in result.data] if result.data else []
+                except Exception:
+                    return []  # Молча игнорируем ошибку
 
-            # 2. EXPLAIN PLAN — для логики запроса
-            plan_result = self.client.execute_query(f"EXPLAIN PLAN {query}")
-            plan_lines = [step[0] for step in plan_result.data] if plan_result.data else []
+            # Основной источник — только EXPLAIN indexes = 1
+            indexes_lines = safe_explain("indexes = 1")
 
-            # 3. EXPLAIN PIPELINE — для оценки сложности
-            pipeline_result = self.client.execute_query(f"EXPLAIN PIPELINE {query}")
-            pipeline_steps = [step[0] for step in pipeline_result.data] if pipeline_result.data else []
+            # Опционально — PLAN и PIPELINE (если поддерживается)
+            plan_lines = safe_explain("PLAN")
+            pipeline_steps = safe_explain("PIPELINE")
 
-            # Анализ full scan по партициям
+            # Анализ full scan
             has_full_scan = False
             for line in indexes_lines:
                 if 'Parts:' in line:
@@ -43,14 +49,19 @@ class AdvancedQueryAnalyzer:
                             has_full_scan = True
                             break
 
+            # Извлекаем метрики из indexes_lines, если PLAN не доступен
+            has_sorting = any('Sorting' in line for line in indexes_lines)
+            has_aggregation = any('Aggregating' in line for line in indexes_lines)
+
             return {
                 'indexes_lines': indexes_lines,
                 'plan_lines': plan_lines,
                 'pipeline_steps': pipeline_steps,
                 'has_full_scan': has_full_scan,
-                'has_sorting': any('Sorting' in step for step in plan_lines),
-                'has_aggregation': any('Aggregating' in step for step in plan_lines),
-                'pipeline_complexity': len(pipeline_steps)
+                'has_sorting': has_sorting,
+                'has_aggregation': has_aggregation,
+                'pipeline_complexity': len(pipeline_steps),
+                'explain_output': "\n".join(indexes_lines)  # Для сохранения в БД
             }
         except Exception as e:
             return {'error': str(e)}
@@ -197,7 +208,6 @@ class AdvancedQueryAnalyzer:
             })
 
         return analysis
-
 
     def get_query_history_stats(self, normalized_query_hash: str, days: int = 7) -> Dict:
         try:
