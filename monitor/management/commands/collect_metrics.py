@@ -34,7 +34,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--limit',
             type=int,
-            default=1000,  # ← УВЕЛИЧИВАЕМ ЛИМИТ
+            default=1000,
             help='Максимальное количество запросов для сбора'
         )
         parser.add_argument(
@@ -57,13 +57,12 @@ class Command(BaseCommand):
         )
 
         try:
-            # Получаем или создаем инстанс в базе
             clickhouse_instance, created = ClickHouseInstance.objects.get_or_create(
                 name=instance_name,
                 defaults={
                     'host': 'configured_in_env',
                     'port': 9000,
-                    'username': 'default',  # ← ИСПРАВЛЕНО
+                    'username': 'default',
                     'is_active': True,
                 }
             )
@@ -73,16 +72,14 @@ class Command(BaseCommand):
                     self.style.WARNING(f'Created new instance: {instance_name}')
                 )
 
-            # Собираем метрики
             stats = self.collect_metrics(
                 clickhouse_instance,
                 lookback_minutes,
                 threshold_ms,
-                options['limit'],  # ← ДОБАВЛЯЕМ ЛИМИТ
+                options['limit'],
                 dry_run
             )
 
-            # Выводим отчет
             self.print_report(stats, dry_run)
 
         except Exception as e:
@@ -92,9 +89,6 @@ class Command(BaseCommand):
             )
 
     def collect_metrics(self, instance, lookback_minutes, threshold_ms, limit, dry_run=False):
-        """
-        Основной метод сбора метрик
-        """
         stats = {
             'total_queries': 0,
             'slow_queries': 0,
@@ -103,34 +97,28 @@ class Command(BaseCommand):
         }
 
         with ClickHouseClient(instance.name) as client:
-            # 1. Собираем медленные запросы из query_log
             slow_queries = self.collect_slow_queries(
                 client, instance, lookback_minutes, threshold_ms, limit, dry_run
             )
             stats['slow_queries'] = len(slow_queries)
 
-            # 2. Создаем записи в лаборатории для новых медленных запросов
             if not dry_run:
+                # Создаём SlowQuery только для новых normalized_query_hash
                 new_slow_queries = self.create_slow_query_records(slow_queries)
                 stats['new_slow_queries'] = new_slow_queries
 
-            # 3. Собираем статистику по всем запросам
             query_stats = self.collect_query_stats(client, lookback_minutes)
             stats['total_queries'] = query_stats.get('total_queries', 0)
 
-            # 4. Собираем системные метрики (для будущего использования)
             system_metrics = self.collect_system_metrics(client)
 
         return stats
 
     def collect_slow_queries(self, client, instance, lookback_minutes, threshold_ms, limit, dry_run):
-        """
-        Сбор медленных запросов из system.query_log
-        """
         slow_queries_sql = system_queries.get_slow_queries(
             threshold_ms=threshold_ms,
             lookback_minutes=lookback_minutes,
-            limit=limit  # ← ПЕРЕДАЕМ ЛИМИТ
+            limit=limit
         )
 
         result = client.execute_query(slow_queries_sql)
@@ -140,11 +128,12 @@ class Command(BaseCommand):
             return []
 
         slow_queries = []
+        errors = 0  # ← Исправлено: локальный счётчик
+
         for row in result.data:
             try:
                 query_data = self.parse_query_log_row(row, instance)
                 if not dry_run:
-                    # Сохраняем в базу
                     query_log = self.save_query_log(query_data)
                     slow_queries.append(query_log)
                 else:
@@ -152,22 +141,18 @@ class Command(BaseCommand):
 
             except Exception as e:
                 logger.error(f"Error processing query row: {e}")
-                stats['errors'] += 1
+                errors += 1  # ← Исправлено
 
+        # Возвращаем ошибки, если нужно — но в текущей логике они не используются
         return slow_queries
 
     def parse_query_log_row(self, row, instance):
-        """
-        Парсинг строки из system.query_log
-        """
         (
             query_id, query, query_start_time, query_duration_ms,
             read_rows, read_bytes, memory_usage, user, client_name,
             databases, tables, columns, normalized_query_hash
         ) = row
 
-        # Преобразуем naive datetime в aware datetime
-        from django.utils import timezone
         if query_start_time and timezone.is_naive(query_start_time):
             query_start_time = timezone.make_aware(query_start_time)
 
@@ -181,54 +166,43 @@ class Command(BaseCommand):
             'read_rows': read_rows or 0,
             'read_bytes': read_bytes or 0,
             'memory_usage': memory_usage or 0,
-            'query_start_time': query_start_time,  # ← Теперь aware datetime
+            'query_start_time': query_start_time,
             'is_slow': True,
             'is_initial': True
         }
 
     def save_query_log(self, query_data):
-        """
-        Сохранение QueryLog в базу с обработкой дубликатов
-        """
-        try:
-            # Пытаемся найти существующую запись
-            query_log, created = QueryLog.objects.get_or_create(
-                query_id=query_data['query_id'],
-                defaults=query_data
-            )
+        query_log, created = QueryLog.objects.get_or_create(
+            query_id=query_data['query_id'],
+            defaults=query_data
+        )
 
-            if not created:
-                # Обновляем существующую запись если нужно
-                query_log.duration_ms = query_data['duration_ms']
-                query_log.read_rows = query_data['read_rows']
-                query_log.read_bytes = query_data['read_bytes']
-                query_log.memory_usage = query_data['memory_usage']
-                query_log.save()
+        if not created:
+            query_log.duration_ms = query_data['duration_ms']
+            query_log.read_rows = query_data['read_rows']
+            query_log.read_bytes = query_data['read_bytes']
+            query_log.memory_usage = query_data['memory_usage']
+            query_log.save()
 
-            return query_log
-
-        except Exception as e:
-            logger.error(f"Failed to save QueryLog: {e}")
-            raise
+        return query_log
 
     def create_slow_query_records(self, slow_queries):
         """
-        Создание записей в лаборатории для новых медленных запросов
+        Создаёт SlowQuery только если normalized_query_hash ещё не встречался.
         """
         new_records = 0
 
         for query_log in slow_queries:
-            # Проверяем, нет ли уже такой записи в лаборатории
-            if not SlowQuery.objects.filter(query_log=query_log).exists():
+            # Проверяем, есть ли уже SlowQuery с таким normalized_query_hash
+            if not SlowQuery.objects.filter(
+                query_log__normalized_query_hash=query_log.normalized_query_hash
+            ).exists():
                 SlowQuery.objects.create(query_log=query_log)
                 new_records += 1
 
         return new_records
 
     def collect_query_stats(self, client, lookback_minutes):
-        """
-        Сбор общей статистики по запросам
-        """
         stats_sql = system_queries.get_query_log_stats(
             lookback_hours=lookback_minutes // 60 or 1
         )
@@ -253,10 +227,6 @@ class Command(BaseCommand):
         return {}
 
     def collect_system_metrics(self, client):
-        """
-        Сбор системных метрик (заглушка для будущего использования)
-        """
-        # Пока просто собираем, но не сохраняем
         metrics_sql = system_queries.get_system_metrics()
         result = client.execute_query(metrics_sql)
 
@@ -267,9 +237,6 @@ class Command(BaseCommand):
         return {metric: value for metric, value, _ in result.data}
 
     def print_report(self, stats, dry_run):
-        """
-        Вывод отчета о выполнении
-        """
         self.stdout.write("\n" + "=" * 50)
         self.stdout.write("COLLECTION REPORT")
         self.stdout.write("=" * 50)

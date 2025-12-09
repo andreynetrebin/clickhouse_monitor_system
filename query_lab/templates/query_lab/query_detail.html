@@ -5,8 +5,8 @@
 
 {% block content %}
 <div class="card">
-    <!-- Заголовок и статус -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <!-- Заголовок, статус и кнопка анализа -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
         <div>
             <h1 style="margin: 0; color: #2c3e50;">
                 Запрос #{{ sq.id }}
@@ -23,16 +23,20 @@
             </div>
         </div>
         <div style="text-align: right;">
-            <div style="font-size: 2rem; font-weight: bold; color: #e74c3c;">
+            <div style="font-size: 2rem; font-weight: bold; color: #e74c3c; margin-bottom: 0.5rem;">
                 {{ sq.get_duration_seconds|floatformat:1 }}с
             </div>
             <div style="color: #7f8c8d;">
                 {{ sq.created_at|date:"d.m.Y H:i" }}
             </div>
+            <!-- Кнопка анализа -->
+            <a href="{% url 'query_lab:analyze_query' sq.id %}" class="btn" style="background: #3498db; color: white; padding: 0.3rem 0.8rem; margin-top: 0.5rem;">
+                🔍 Запустить анализ
+            </a>
         </div>
     </div>
 
-    <!-- Основная информация -->
+    <!-- Основные метрики -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
         <div>
             <h3>📊 Метрики выполнения</h3>
@@ -50,11 +54,11 @@
                     <strong>{{ query_log.read_bytes|filesizeformat }}</strong>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                    <span>Использовано памяти:</span>
+                    <span>Память:</span>
                     <strong>{{ query_log.memory_usage|filesizeformat }}</strong>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
-                    <span>Время выполнения:</span>
+                    <span>Начало:</span>
                     <strong>{{ query_log.query_start_time|date:"d.m.Y H:i:s" }}</strong>
                 </div>
             </div>
@@ -81,261 +85,98 @@
         </div>
     </div>
 
-    <!-- Исходный запрос с кнопкой копирования -->
-    <div style="margin-bottom: 2rem;" class="sql-block">
-        <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 0.5rem;">
+    <!-- Исходный запрос -->
+    <div class="sql-block" style="margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
             <h3 style="margin: 0;">📝 Исходный запрос</h3>
             <button type="button" class="btn" style="background: #9b59b6; padding: 0.25rem 0.75rem; font-size: 0.8rem;"
                     onclick="copySQL(this)">
                 📋 Копировать
             </button>
         </div>
-        <div class="sql-code">
-{{ query_log.query_text }}
-        </div>
+        <pre class="sql-code" style="background: #2c3e50; color: #ecf0f1; padding: 1rem; border-radius: 4px; overflow-x: auto;">{{ query_log.query_text }}</pre>
     </div>
 
-    <!-- Анализ проблемы -->
+    <!-- Результаты анализа -->
+    {% if query_analysis %}
     <div style="margin-bottom: 2rem;">
-        <h3>🔍 Анализ проблемы</h3>
-        {% if sq.analysis_notes %}
-        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 1rem; margin-bottom: 1rem;">
-            {{ sq.analysis_notes|linebreaks }}
-        </div>
-        {% else %}
-        <div style="background: #f8f9fa; border-radius: 4px; padding: 2rem; text-align: center; color: #7f8c8d;">
-            <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔍</div>
-            <p>Анализ проблемы еще не проведен</p>
-        </div>
-        {% endif %}
+        <h3>🔬 Результаты анализа</h3>
 
-        {% if sq.tags %}
-        <div style="margin-top: 1rem;">
-            <strong>Теги:</strong>
-            {% for tag in sq.tags.split %}
-            <span style="display: inline-block; background: #3498db; color: white; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; margin: 0.25rem;">
-                {{ tag }}
-            </span>
-            {% endfor %}
-        </div>
-        {% endif %}
-    </div>
-
-
-        <!-- Автоматические рекомендации по оптимизации -->
-        <div class="card">
-            <h3>🤖 Автоматический анализ запроса</h3>
-
-            {% if query_analysis.detected_patterns %}
-            <!-- Обнаруженные проблемы -->
-            <div style="margin-bottom: 2rem;">
-                <h4>🔍 Обнаруженные проблемы:</h4>
-                {% for pattern in query_analysis.detected_patterns %}
-                <div style="border-left: 4px solid
-                    {% if pattern.priority == 'critical' %}#e74c3c
-                    {% elif pattern.priority == 'high' %}#f39c12
-                    {% else %}#3498db{% endif %};
-                    padding: 1rem; margin-bottom: 1rem; background: #f8f9fa; border-radius: 4px;">
-                    <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 0.5rem;">
-                        <strong>{{ pattern.name }}</strong>
-                        <span style="padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem;
-                            background: {% if pattern.priority == 'critical' %}#e74c3c
-                            {% elif pattern.priority == 'high' %}#f39c12
-                            {% else %}#3498db{% endif %};
-                            color: white;">
-                            {{ pattern.priority }}
-                        </span>
-                    </div>
-                    <ul style="margin: 0; padding-left: 1.5rem;">
-                        {% for rec in pattern.recommendations %}
-                        <li>{{ rec }}</li>
-                        {% endfor %}
-                    </ul>
+        <!-- Сложность -->
+        <div style="background: #2c3e50; color: white; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <div>
+                    <div style="font-size: 1.5rem; font-weight: bold;">Сложность: {{ query_analysis.complexity_score }}/100</div>
                 </div>
+                {% if query_analysis.has_full_scan %}
+                <div style="background: #e74c3c; padding: 0.25rem 0.75rem; border-radius: 12px;">⚠️ Full scan</div>
+                {% endif %}
+                {% if query_analysis.has_sorting %}
+                <div style="background: #f39c12; padding: 0.25rem 0.75rem; border-radius: 12px;">🔄 Сортировка</div>
+                {% endif %}
+                {% if query_analysis.has_aggregation %}
+                <div style="background: #3498db; padding: 0.25rem 0.75rem; border-radius: 12px;">🧮 Агрегация</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Рекомендации -->
+        {% if query_analysis.recommendations %}
+        <div style="margin-bottom: 1rem;">
+            <h4>💡 Рекомендации:</h4>
+            <ul style="padding-left: 1.5rem;">
+                {% for rec in query_analysis.recommendations %}
+                <li>{{ rec }}</li>
                 {% endfor %}
-            </div>
-
-            <!-- Сводка -->
-            <div style="background: #2c3e50; color: white; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; text-align: center;">
-                    <div>
-                        <div style="font-size: 1.5rem; font-weight: bold;">{{ query_analysis.summary.total_patterns }}</div>
-                        <div style="font-size: 0.8rem;">Всего проблем</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 1.5rem; font-weight: bold; color: #e74c3c;">{{ query_analysis.summary.critical_count }}</div>
-                        <div style="font-size: 0.8rem;">Критичных</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 1.5rem; font-weight: bold; color: #f39c12;">{{ query_analysis.summary.high_count }}</div>
-                        <div style="font-size: 0.8rem;">Высоких</div>
-                    </div>
-                    <div>
-                        <div style="font-size: 1.5rem; font-weight: bold; color: #3498db;">{{ query_analysis.summary.medium_count }}</div>
-                        <div style="font-size: 0.8rem;">Средних</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Шаблон оптимизированного запроса -->
-            <div style="margin-bottom: 1rem;">
-                <h4>🚀 Шаблон оптимизированного запроса:</h4>
-                <div class="sql-code" style="background: #d4edda; color: #155724;">
-    {{ optimized_template }}
-                </div>
-                <div style="font-size: 0.8rem; color: #7f8c8d; margin-top: 0.5rem;">
-                    ⚠️ Это автоматически сгенерированный шаблон. Проверьте корректность перед использованием.
-                </div>
-            </div>
-            {% else %}
-            <div style="text-align: center; padding: 2rem; color: #7f8c8d;">
-                <div style="font-size: 3rem; margin-bottom: 1rem;">✅</div>
-                <h4>Проблемы не обнаружены</h4>
-                <p>Автоматический анализ не выявил явных проблем в запросе</p>
-            </div>
-            {% endif %}
-
-    <!-- Расширенный анализ с EXPLAIN -->
-    <div class="card">
-        <h3>🔬 Расширенный анализ (EXPLAIN)</h3>
-
-        {% if advanced_analysis.error %}
-        <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px;">
-            <strong>Ошибка расширенного анализа:</strong> {{ advanced_analysis.error }}
-        </div>
-        {% else %}
-
-        <!-- План выполнения -->
-        {% if advanced_analysis.explain_analysis.plan_steps %}
-        <div style="margin-bottom: 2rem;">
-            <h4>📋 План выполнения (EXPLAIN PLAN):</h4>
-            <div style="background: #2c3e50; color: white; padding: 1rem; border-radius: 4px; font-family: monospace;">
-                {% for step in advanced_analysis.explain_analysis.plan_steps %}
-                <div style="margin-bottom: 0.5rem;">{{ step }}</div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Pipeline -->
-        {% if advanced_analysis.explain_analysis.pipeline_steps %}
-        <div style="margin-bottom: 2rem;">
-            <h4>⚙️ Pipeline (EXPLAIN PIPELINE):</h4>
-            <div style="background: #34495e; color: white; padding: 1rem; border-radius: 4px; font-family: monospace;">
-                {% for step in advanced_analysis.explain_analysis.pipeline_steps %}
-                <div style="margin-bottom: 0.5rem;">{{ step }}</div>
-                {% endfor %}
-            </div>
+            </ul>
         </div>
         {% endif %}
 
         <!-- Предупреждения -->
-        {% if advanced_analysis.warnings %}
-        <div style="margin-bottom: 2rem;">
-            <h4>⚠️ Предупреждения выполнения:</h4>
-            {% for warning in advanced_analysis.warnings %}
-            <div style="border-left: 4px solid
-                {% if warning.priority == 'high' %}#e74c3c
-                {% elif warning.priority == 'medium' %}#f39c12
-                {% else %}#3498db{% endif %};
-                padding: 1rem; margin-bottom: 1rem; background: #f8f9fa; border-radius: 4px;">
-                <strong>{{ warning.message }}</strong>
-                <div style="font-size: 0.8rem; color: #7f8c8d;">
-                    Тип: {{ warning.type }} | Приоритет: {{ warning.priority }}
-                </div>
-            </div>
+        {% if query_analysis.warnings %}
+        <div style="margin-bottom: 1rem;">
+            <h4>⚠️ Предупреждения:</h4>
+            {% for w in query_analysis.warnings %}
+            <div style="margin-left: 1.5rem; margin-bottom: 0.3rem;">• {{ w.message }}</div>
             {% endfor %}
         </div>
         {% endif %}
 
-        <!-- Анализ таблиц -->
-        {% if advanced_analysis.table_analysis %}
-        <div style="margin-bottom: 2rem;">
-            <h4>📊 Анализ таблиц:</h4>
-            {% for table_name, stats in advanced_analysis.table_analysis.items %}
-            {% if stats and 'error' not in stats %}
-            <div style="border: 1px solid #ecf0f1; padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
-                <strong>{{ table_name }}</strong>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem; margin-top: 0.5rem;">
-                    <div>
-                        <small>Движок:</small><br>
-                        <strong>{{ stats.engine }}</strong>
-                    </div>
-                    <div>
-                        <small>Строк:</small><br>
-                        <strong>{{ stats.total_rows|intcomma }}</strong>
-                    </div>
-                    <div>
-                        <small>Размер:</small><br>
-                        <strong>{{ stats.size_gb|floatformat:2 }} GB</strong>
-                    </div>
-                    <div>
-                        <small>Партиции:</small><br>
-                        <strong>{{ stats.partition_key|default:"нет" }}</strong>
-                    </div>
-                    <div>
-                        <small>Сортировка:</small><br>
-                        <strong>{{ stats.sorting_key|default:"нет" }}</strong>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
-            {% endfor %}
-        </div>
-        {% endif %}
-
+        <!-- EXPLAIN (если есть) -->
+        {% if query_analysis.explain_plan %}
+        <details>
+            <summary style="cursor: pointer; margin-bottom: 0.5rem; color: #3498db;">📋 Показать EXPLAIN indexes = 1</summary>
+            <pre style="background: #1a1a1a; color: #00ff00; padding: 1rem; border-radius: 4px; overflow-x: auto;">{{ query_analysis.explain_plan }}</pre>
+        </details>
         {% endif %}
     </div>
+    {% else %}
+    <div style="background: #f8f9fa; padding: 2rem; text-align: center; border-radius: 4px; margin-bottom: 2rem;">
+        <div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div>
+        <p>Анализ ещё не запускался. Нажмите «Запустить анализ» выше.</p>
+    </div>
+    {% endif %}
 
-            <!-- Общие рекомендации -->
-            <div>
-                <h4>📚 Общие рекомендации по оптимизации:</h4>
-                {% for category in best_practices %}
-                <div style="margin-bottom: 1rem;">
-                    <strong>{{ category.category }}:</strong>
-                    <ul style="margin: 0.5rem 0 0 1.5rem;">
-                        {% for item in category.items %}
-                        <li>{{ item }}</li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-
-    <!-- Оптимизированный запрос с кнопкой копирования -->
+    <!-- Оптимизированный запрос (если есть) -->
     {% if sq.optimized_query %}
-    <div style="margin-bottom: 2rem;" class="sql-block">
-        <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 0.5rem;">
-            <h3 style="margin: 0;">🚀 Оптимизированный запрос</h3>
+    <div class="sql-block" style="margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <h3 style="margin: 0; color: #27ae60;">🚀 Оптимизированный запрос</h3>
             <button type="button" class="btn" style="background: #27ae60; padding: 0.25rem 0.75rem; font-size: 0.8rem;"
                     onclick="copySQL(this)">
                 📋 Копировать
             </button>
         </div>
-        <div class="sql-code" style="background: #d4edda; color: #155724;">
-{{ sq.optimized_query }}
-        </div>
-    </div>
-    {% endif %}
-        
+        <pre class="sql-code" style="background: #d4edda; color: #155724; padding: 1rem; border-radius: 4px; overflow-x: auto;">{{ sq.optimized_query }}</pre>
+
         {% if sq.optimization_notes %}
         <div style="background: #d1ecf1; border: 1px solid #bee5eb; border-radius: 4px; padding: 1rem; margin-top: 1rem;">
             <strong>Объяснение оптимизации:</strong><br>
             {{ sq.optimization_notes|linebreaks }}
         </div>
         {% endif %}
-
-        {% if sq.expected_improvement %}
-        <div style="margin-top: 1rem;">
-            <strong>Ожидаемое улучшение:</strong> 
-            <span style="color: #27ae60; font-weight: bold;">
-                +{{ sq.expected_improvement }}%
-            </span>
-        </div>
-        {% endif %}
     </div>
-
+    {% endif %}
 
     <!-- Результаты оптимизации -->
     {% if sq.actual_improvement %}
@@ -343,12 +184,12 @@
         <h3>📈 Результаты оптимизации</h3>
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; text-align: center;">
             <div style="background: #e74c3c; color: white; padding: 1rem; border-radius: 4px;">
-                <div style="font-size: 0.9rem;">До оптимизации</div>
-                <div style="font-size: 1.5rem; font-weight: bold;">{{ sq.before_duration_ms|floatformat:0 }}мс</div>
+                <div style="font-size: 0.9rem;">До</div>
+                <div style="font-size: 1.5rem; font-weight: bold;">{{ sq.before_duration_ms|floatformat:0 }} мс</div>
             </div>
             <div style="background: #27ae60; color: white; padding: 1rem; border-radius: 4px;">
-                <div style="font-size: 0.9rem;">После оптимизации</div>
-                <div style="font-size: 1.5rem; font-weight: bold;">{{ sq.after_duration_ms|floatformat:0 }}мс</div>
+                <div style="font-size: 0.9rem;">После</div>
+                <div style="font-size: 1.5rem; font-weight: bold;">{{ sq.after_duration_ms|floatformat:0 }} мс</div>
             </div>
             <div style="background: #3498db; color: white; padding: 1rem; border-radius: 4px;">
                 <div style="font-size: 0.9rem;">Улучшение</div>
@@ -360,279 +201,23 @@
 
     <!-- Действия -->
     <div style="display: flex; gap: 1rem; justify-content: flex-end; border-top: 1px solid #ecf0f1; padding-top: 1rem;">
-        <a href="{% url 'query_list' %}" class="btn">
-            📋 К списку
-        </a>
-        <a href="{% url 'admin:query_lab_slowquery_change' sq.id %}" class="btn btn-warning" target="_blank">
-            ⚙️ Редактировать
-        </a>
+        <a href="{% url 'query_lab:query_list' %}" class="btn">📋 К списку</a>
+        <a href="{% url 'admin:query_lab_slowquery_change' sq.id %}" class="btn btn-warning" target="_blank">⚙️ Редактировать</a>
     </div>
 
-    <!-- Форма анализа проблемы -->
-    <div style="margin-bottom: 2rem;">
-        <h3>🔍 Анализ проблемы</h3>
-
-        {% if sq.analysis_notes %}
-        <!-- Существующий анализ -->
-        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 1rem; margin-bottom: 1rem;">
-            {{ sq.analysis_notes|linebreaks }}
-        </div>
-        {% endif %}
-
-        <!-- Форма для анализа -->
-        <form method="post" style="background: #f8f9fa; padding: 1.5rem; border-radius: 4px;">
-            {% csrf_token %}
-            <input type="hidden" name="analyze" value="1">
-
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                    Категория проблемы:
-                </label>
-                {{ analysis_form.problem_category }}
-            </div>
-
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                    Заметки анализа:
-                </label>
-                {{ analysis_form.analysis_notes }}
-            </div>
-
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                    Теги:
-                </label>
-                {{ analysis_form.tags }}
-                <div style="font-size: 0.8rem; color: #7f8c8d; margin-top: 0.25rem;">
-                    Через запятую: медленный_join, полносканирование, большой_результат
-                </div>
-            </div>
-
-            <button type="submit" class="btn btn-warning">
-                💾 Сохранить анализ
-            </button>
-        </form>
-    </div>
-
-    <!-- Форма оптимизации -->
-    <div style="margin-bottom: 2rem;">
-        <h3>🚀 Предложить оптимизацию</h3>
-
-        {% if sq.optimized_query %}
-        <!-- Существующая оптимизация с кнопкой копирования -->
-        <div class="sql-block">
-            <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 0.5rem;">
-                <h4 style="margin: 0; color: #27ae60;">Текущая оптимизация:</h4>
-                <button type="button" class="btn" style="background: #27ae60; padding: 0.25rem 0.75rem; font-size: 0.8rem;"
-                        onclick="copySQL(this)">
-                    📋 Копировать
-                </button>
-            </div>
-            <div class="sql-code" style="background: #d4edda; color: #155724; margin-bottom: 1rem;">
-{{ sq.optimized_query }}
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Форма для оптимизации -->
-        <form method="post" style="background: #f8f9fa; padding: 1.5rem; border-radius: 4px;">
-            {% csrf_token %}
-            <input type="hidden" name="optimize" value="1">
-
-            <div style="margin-bottom: 1rem;">
-                <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 0.5rem;">
-                    <label style="font-weight: bold;">
-                        Оптимизированный запрос:
-                    </label>
-                    <button type="button" class="btn" style="background: #3498db; padding: 0.25rem 0.75rem; font-size: 0.8rem;"
-                            onclick="copyToClipboard(document.querySelector('#id_optimized_query').value)">
-                        📋 Копировать
-                    </button>
-                </div>
-                {{ optimization_form.optimized_query }}
-            </div>
-
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                    Ожидаемое улучшение:
-                </label>
-                {{ optimization_form.expected_improvement }} %
-            </div>
-
-            <button type="submit" class="btn btn-success">
-                🚀 Предложить оптимизацию
-            </button>
-        </form>
-    </div>
-
-    <!-- Форма результатов -->
-    {% if sq.optimized_query and not sq.actual_improvement %}
-    <div style="margin-bottom: 2rem;">
-        <h3>📈 Записать результаты</h3>
-
-        <form method="post" style="background: #f8f9fa; padding: 1.5rem; border-radius: 4px;">
-            {% csrf_token %}
-            <input type="hidden" name="save_results" value="1">
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                <div>
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                        Длительность до:
-                    </label>
-                    {{ results_form.before_duration_ms }}
-                </div>
-
-                <div>
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                        Длительность после:
-                    </label>
-                    {{ results_form.after_duration_ms }}
-                </div>
-
-                <div>
-                    <label style="display: block; margin-bottom: 0.5rem; font-weight: bold;">
-                        Улучшение:
-                    </label>
-                    {{ results_form.actual_improvement }} %
-                </div>
-            </div>
-
-            <button type="submit" class="btn">
-                📊 Сохранить результаты
-            </button>
-        </form>
-    </div>
-    {% endif %}
-
-    <!-- Панель быстрых действий -->
-    <div class="card" style="margin-bottom: 2rem;">
-        <h3>⚡ Быстрые действия</h3>
-        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-
-            <!-- Назначить себе -->
-            {% if not sq.assigned_to or sq.assigned_to != request.user %}
-            <form method="post" style="margin: 0;">
-                {% csrf_token %}
-                <input type="hidden" name="quick_action" value="assign_to_me">
-                <button type="submit" class="btn" style="background: #3498db;">
-                    👤 Назначить мне
-                </button>
-            </form>
-            {% endif %}
-
-            <!-- Начать анализ -->
-            {% if sq.status == 'new' %}
-            <form method="post" style="margin: 0;">
-                {% csrf_token %}
-                <input type="hidden" name="quick_action" value="start_analysis">
-                <button type="submit" class="btn" style="background: #f39c12;">
-                    🔍 Начать анализ
-                </button>
-            </form>
-            {% endif %}
-
-            <!-- Отметить как оптимизированный -->
-            {% if sq.status == 'waiting_feedback' %}
-            <form method="post" style="margin: 0;">
-                {% csrf_token %}
-                <input type="hidden" name="quick_action" value="mark_optimized">
-                <button type="submit" class="btn" style="background: #27ae60;">
-                    ✅ Оптимизирован
-                </button>
-            </form>
-            {% endif %}
-
-            <!-- Игнорировать -->
-            {% if sq.status in 'new,in_analysis' %}
-            <form method="post" style="margin: 0;">
-                {% csrf_token %}
-                <input type="hidden" name="quick_action" value="mark_ignored">
-                <button type="submit" class="btn" style="background: #95a5a6;">
-                    ❌ Игнорировать
-                </button>
-            </form>
-            {% endif %}
-
-            <!-- Не подлежит оптимизации -->
-            {% if sq.status in 'new,in_analysis' %}
-            <form method="post" style="margin: 0;">
-                {% csrf_token %}
-                <input type="hidden" name="quick_action" value="cannot_optimize">
-                <button type="submit" class="btn" style="background: #e74c3c;">
-                    🚫 Не оптимизируется
-                </button>
-            </form>
-            {% endif %}
-
-            <!-- Копировать запрос -->
-            <button type="button" class="btn" style="background: #9b59b6;"
-                    onclick="copyToClipboard('{{ query_log.query_text|escapejs }}')">
-                📋 Копировать запрос
-            </button>
-
-        </div>
-    </div>
-
-
-    <!-- Индикатор прогресса -->
-    <div class="card" style="margin-bottom: 2rem;">
-        <h3>📊 Прогресс анализа</h3>
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <div style="flex-grow: 1; background: #ecf0f1; height: 8px; border-radius: 4px; overflow: hidden;">
-                <div style="height: 100%; background: linear-gradient(90deg, #3498db, #27ae60); width:
-                    {% if sq.status == 'new' %}10%
-                    {% elif sq.status == 'in_analysis' %}40%
-                    {% elif sq.status == 'waiting_feedback' %}70%
-                    {% elif sq.status == 'optimized' %}100%
-                    {% else %}0%{% endif %};
-                    transition: width 0.3s ease;">
-                </div>
-            </div>
-            <div style="font-weight: bold; color: #2c3e50;">
-                {% if sq.status == 'new' %}Обнаружен
-                {% elif sq.status == 'in_analysis' %}В анализе
-                {% elif sq.status == 'waiting_feedback' %}Ожидает проверки
-                {% elif sq.status == 'optimized' %}Завершен
-                {% else %}Завершен{% endif %}
-            </div>
-        </div>
-
-        <!-- Временная шкала -->
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1rem;">
-            <div style="text-align: center;">
-                <div style="font-size: 0.8rem; color: #7f8c8d;">Обнаружен</div>
-                <div style="font-size: 0.7rem; color: #bdc3c7;">{{ sq.created_at|date:"d.m" }}</div>
-            </div>
-
-            <div style="text-align: center;">
-                <div style="font-size: 0.8rem; color: {% if sq.status != 'new' %}#2c3e50{% else %}#7f8c8d{% endif %};">
-                    Анализ
-                </div>
-                <div style="font-size: 0.7rem; color: #bdc3c7;">
-                    {% if sq.analysis_started_at %}{{ sq.analysis_started_at|date:"d.m" }}{% endif %}
-                </div>
-            </div>
-
-            <div style="text-align: center;">
-                <div style="font-size: 0.8rem; color: {% if sq.status == 'waiting_feedback' or sq.status == 'optimized' %}#2c3e50{% else %}#7f8c8d{% endif %};">
-                    Оптимизация
-                </div>
-                <div style="font-size: 0.7rem; color: #bdc3c7;">
-                    {% if sq.optimized_query %}✅{% endif %}
-                </div>
-            </div>
-
-            <div style="text-align: center;">
-                <div style="font-size: 0.8rem; color: {% if sq.status == 'optimized' %}#2c3e50{% else %}#7f8c8d{% endif %};">
-                    Завершен
-                </div>
-                <div style="font-size: 0.7rem; color: #bdc3c7;">
-                    {% if sq.optimized_at %}{{ sq.optimized_at|date:"d.m" }}{% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
 
 
 </div>
+
+<script>
+function copySQL(button) {
+    const sqlBlock = button.closest('.sql-block').querySelector('.sql-code');
+    const text = sqlBlock.textContent || sqlBlock.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        const original = button.innerHTML;
+        button.innerHTML = '✅ Скопировано!';
+        setTimeout(() => button.innerHTML = original, 2000);
+    });
+}
+</script>
 {% endblock %}

@@ -1,15 +1,14 @@
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List
 from clickhouse_client import ClickHouseClient
 
 
 class AdvancedQueryAnalyzer:
     """
     Продвинутый анализатор запросов с использованием:
-    - EXPLAIN PLAN
-    - EXPLAIN PIPELINE
-    - system.query_log
-    - system.tables
+    - EXPLAIN indexes = 1 (для full scan),
+    - EXPLAIN PLAN (для сортировки/агрегации),
+    - EXPLAIN PIPELINE (для сложности пайплайна)
     """
 
     def __init__(self, client: ClickHouseClient):
@@ -17,32 +16,57 @@ class AdvancedQueryAnalyzer:
 
     def get_explain_plan(self, query: str) -> Dict:
         """
-        Получает план выполнения запроса через EXPLAIN
+        Надёжный анализ запроса через EXPLAIN indexes = 1.
+        Дополнительные EXPLAIN (PLAN, PIPELINE) — опциональны.
         """
         try:
-            # EXPLAIN PLAN
-            plan_result = self.client.execute_query(f"EXPLAIN PLAN {query}")
-            plan_steps = [step[0] for step in plan_result.data] if plan_result.data else []
+            query = query.strip().rstrip(';')
 
-            # EXPLAIN PIPELINE
-            pipeline_result = self.client.execute_query(f"EXPLAIN PIPELINE {query}")
-            pipeline_steps = [step[0] for step in pipeline_result.data] if pipeline_result.data else []
+            # Унифицированная функция безопасного выполнения EXPLAIN
+            def safe_explain(explain_type: str) -> List[str]:
+                try:
+                    result = self.client.execute_query(f"EXPLAIN {explain_type} {query}")
+                    return [step[0] for step in result.data] if result.data else []
+                except Exception:
+                    return []  # Молча игнорируем ошибку
+
+            # Основной источник — только EXPLAIN indexes = 1
+            indexes_lines = safe_explain("indexes = 1")
+
+            # Опционально — PLAN и PIPELINE (если поддерживается)
+            plan_lines = safe_explain("PLAN")
+            pipeline_steps = safe_explain("PIPELINE")
+
+            # Анализ full scan
+            has_full_scan = False
+            for line in indexes_lines:
+                if 'Parts:' in line:
+                    parts_match = re.search(r'Parts:\s*(\d+)/(\d+)', line)
+                    if parts_match:
+                        read_parts = int(parts_match.group(1))
+                        total_parts = int(parts_match.group(2))
+                        if total_parts > 10 and read_parts >= total_parts:
+                            has_full_scan = True
+                            break
+
+            # Извлекаем метрики из indexes_lines, если PLAN не доступен
+            has_sorting = any('Sorting' in line for line in indexes_lines)
+            has_aggregation = any('Aggregating' in line for line in indexes_lines)
 
             return {
-                'plan_steps': plan_steps,
+                'indexes_lines': indexes_lines,
+                'plan_lines': plan_lines,
                 'pipeline_steps': pipeline_steps,
-                'has_full_scan': any('Full' in step for step in plan_steps),
-                'has_sorting': any('Sort' in step for step in plan_steps),
-                'has_aggregation': any('Aggregating' in step for step in plan_steps),
-                'pipeline_complexity': len(pipeline_steps)
+                'has_full_scan': has_full_scan,
+                'has_sorting': has_sorting,
+                'has_aggregation': has_aggregation,
+                'pipeline_complexity': len(pipeline_steps),
+                'explain_output': "\n".join(indexes_lines)  # Для сохранения в БД
             }
         except Exception as e:
             return {'error': str(e)}
 
     def get_table_stats(self, table_name: str, database: str = 'default') -> Dict:
-        """
-        Получает статистику по таблице из system.tables
-        """
         try:
             query = f"""
             SELECT 
@@ -73,72 +97,75 @@ class AdvancedQueryAnalyzer:
             return {'error': str(e)}
 
     def extract_tables_from_query(self, query: str) -> List[str]:
-        """
-        Извлекает имена таблиц из SQL запроса
-        """
-        # Простой парсинг для извлечения таблиц
         tables = []
-
-        # FROM clause
         from_matches = re.findall(r'FROM\s+(\w+)', query, re.IGNORECASE)
-        tables.extend(from_matches)
-
-        # JOIN clauses
         join_matches = re.findall(r'JOIN\s+(\w+)', query, re.IGNORECASE)
-        tables.extend(join_matches)
-
-        # INSERT/UPDATE/DELETE
         dml_matches = re.findall(r'(?:INSERT|UPDATE|DELETE)\s+(?:INTO|FROM)?\s*(\w+)', query, re.IGNORECASE)
-        tables.extend(dml_matches)
-
-        return list(set(tables))  # Уникальные таблицы
+        return list(set(from_matches + join_matches + dml_matches))
 
     def analyze_with_explain(self, query: str) -> Dict:
-        """
-        Комплексный анализ запроса с EXPLAIN и статистикой таблиц
-        """
         analysis = {
             'query': query,
             'explain_analysis': {},
             'table_analysis': {},
             'recommendations': [],
-            'warnings': []
+            'warnings': [],
+            'tables_found': [],
+            'complexity_score': 0,
         }
 
-        # 1. Анализ через EXPLAIN
+        # 1. Получаем EXPLAIN indexes = 1
         explain_data = self.get_explain_plan(query)
         analysis['explain_analysis'] = explain_data
 
         if 'error' not in explain_data:
-            # Анализ плана выполнения
-            if explain_data['has_full_scan']:
+            # 2. Извлекаем признаки из EXPLAIN indexes = 1
+            indexes_lines = explain_data.get('indexes_lines', [])
+            has_full_scan = explain_data.get('has_full_scan', False)
+            has_sorting = explain_data.get('has_sorting', False)
+            has_aggregation = explain_data.get('has_aggregation', False)
+            pipeline_complexity = explain_data.get('pipeline_complexity', 0)
+
+            # 3. Рекомендации на основе EXPLAIN
+            if has_full_scan:
                 analysis['warnings'].append({
                     'type': 'full_scan',
                     'message': 'Обнаружено полносканирование таблицы',
                     'priority': 'high'
                 })
                 analysis['recommendations'].append(
-                    'Добавьте индексы на колонки в условиях WHERE'
-                )
+                    'Добавьте партиционирование или пропускающий индекс по полю фильтрации')
 
-            if explain_data['has_sorting']:
+            if has_sorting:
                 analysis['warnings'].append({
                     'type': 'sorting',
                     'message': 'Обнаружена операция сортировки',
                     'priority': 'medium'
                 })
-                analysis['recommendations'].append(
-                    'Используйте индексы для избежания сортировки'
-                )
+                analysis['recommendations'].append('Используйте ключ сортировки или проекцию для избежания сортировки')
 
-            if explain_data['pipeline_complexity'] > 10:
+            if has_aggregation:
+                analysis['recommendations'].append('Рассмотрите агрегирующую проекцию для ускорения GROUP BY')
+
+            if pipeline_complexity > 100:
                 analysis['warnings'].append({
                     'type': 'complex_pipeline',
-                    'message': f'Сложный pipeline ({explain_data["pipeline_complexity"]} шагов)',
+                    'message': f'Сложный pipeline ({pipeline_complexity} шагов)',
                     'priority': 'medium'
                 })
 
-        # 2. Анализ таблиц
+            # 4. Расчёт сложности
+            score = 0
+            if has_full_scan: score += 30
+            if has_sorting: score += 15
+            if has_aggregation: score += 20
+            if pipeline_complexity > 100:
+                score += 35
+            elif pipeline_complexity > 50:
+                score += 20
+            analysis['complexity_score'] = min(score, 100)
+
+        # 5. Анализ таблиц
         tables = self.extract_tables_from_query(query)
         analysis['tables_found'] = tables
 
@@ -147,40 +174,32 @@ class AdvancedQueryAnalyzer:
             analysis['table_analysis'][table] = table_stats
 
             if table_stats and 'error' not in table_stats:
-                # Анализ размера таблицы
-                if table_stats.get('size_gb', 0) > 1:  # Больше 1GB
+                if table_stats.get('size_gb', 0) > 1:
                     analysis['warnings'].append({
                         'type': 'large_table',
                         'message': f'Большая таблица {table}: {table_stats["size_gb"]:.1f} GB',
                         'priority': 'info'
                     })
 
-                # Анализ движка таблицы
                 if table_stats.get('engine') == 'MergeTree':
                     if not table_stats.get('partition_key'):
                         analysis['recommendations'].append(
-                            f'Для таблицы {table} рассмотрите добавление партиционирования'
-                        )
+                            f'Для таблицы {table} рассмотрите добавление партиционирования по дате')
                     if not table_stats.get('sorting_key'):
                         analysis['recommendations'].append(
-                            f'Для таблицы {table} рассмотрите добавление ключа сортировки'
-                        )
+                            f'Для таблицы {table} рассмотрите добавление ключа сортировки')
 
-        # 3. Анализ структуры запроса
+        # 6. Статический анализ запроса
         query_upper = query.upper()
 
-        # Поиск SELECT *
         if 'SELECT *' in query_upper:
             analysis['warnings'].append({
                 'type': 'select_all',
                 'message': 'Используется SELECT *',
                 'priority': 'medium'
             })
-            analysis['recommendations'].append(
-                'Укажите конкретные колонки вместо SELECT *'
-            )
+            analysis['recommendations'].append('Укажите конкретные колонки вместо SELECT *')
 
-        # Поиск LIMIT без ORDER BY
         if 'LIMIT' in query_upper and 'ORDER BY' not in query_upper:
             analysis['warnings'].append({
                 'type': 'limit_no_order',
@@ -191,9 +210,6 @@ class AdvancedQueryAnalyzer:
         return analysis
 
     def get_query_history_stats(self, normalized_query_hash: str, days: int = 7) -> Dict:
-        """
-        Получает историческую статистику выполнения запроса
-        """
         try:
             query = f"""
             SELECT 
@@ -207,9 +223,7 @@ class AdvancedQueryAnalyzer:
             AND event_time > now() - INTERVAL {days} DAY
             AND type = 'QueryFinish'
             """
-
             result = self.client.execute_query(query)
-
             if result.data:
                 count, avg_ms, max_ms, min_ms, p95_ms = result.data[0]
                 return {
@@ -228,51 +242,42 @@ class AdvancedQueryAnalyzer:
         """
         Генерирует комплексный отчет по запросу
         """
+        basic_analysis = self.analyze_with_explain(query)
+        explain_data = basic_analysis['explain_analysis']
+
         report = {
-            'basic_analysis': self.analyze_with_explain(query),
+            'basic_analysis': basic_analysis,
             'performance_metrics': {}
         }
 
-        # Добавляем историческую статистику если есть hash
         if query_hash:
             history_stats = self.get_query_history_stats(query_hash)
             report['performance_metrics']['history'] = history_stats
 
-        # Оценка сложности запроса
-        complexity_score = self._calculate_complexity_score(query)
+        complexity_score = self._calculate_complexity_score(explain_data)
         report['complexity_score'] = complexity_score
 
         return report
 
-    def _calculate_complexity_score(self, query: str) -> int:
-        """
-        Рассчитывает оценку сложности запроса
-        """
+    def _calculate_complexity_score(self, explain_analysis: dict) -> int:
         score = 0
+        if explain_analysis.get('has_full_scan'):
+            score += 30
+        if explain_analysis.get('has_sorting'):
+            score += 15
+        if explain_analysis.get('has_aggregation'):
+            score += 20
 
-        # Количество JOIN
-        joins = len(re.findall(r'JOIN', query, re.IGNORECASE))
-        score += joins * 5
+        pipeline_complexity = explain_analysis.get('pipeline_complexity', 0)
+        if pipeline_complexity > 100:
+            score += 35
+        elif pipeline_complexity > 50:
+            score += 20
+        elif pipeline_complexity > 20:
+            score += 10
 
-        # Количество подзапросов
-        subqueries = len(re.findall(r'\(\s*SELECT', query, re.IGNORECASE))
-        score += subqueries * 10
-
-        # Количество условий WHERE
-        where_conditions = len(re.findall(r'WHERE', query, re.IGNORECASE))
-        score += where_conditions * 3
-
-        # Наличие агрегаций
-        if re.search(r'GROUP BY|COUNT|SUM|AVG|MAX|MIN', query, re.IGNORECASE):
-            score += 8
-
-        # Наличие сортировки
-        if re.search(r'ORDER BY', query, re.IGNORECASE):
-            score += 5
-
-        return min(score, 100)  # Ограничиваем максимальную сложность
+        return min(score, 100)
 
 
-# Синглтон для удобного доступа
 def get_advanced_analyzer():
     return AdvancedQueryAnalyzer(ClickHouseClient())

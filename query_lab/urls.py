@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 
+app_name = 'query_lab'  # ← ЭТО ОБЯЗАТЕЛЬНО
+
 urlpatterns = [
     path('', views.lab_dashboard, name='lab_dashboard'),
     path('queries/', views.query_list, name='query_list'),
@@ -12,4 +14,5 @@ urlpatterns = [
     path('reports/export/csv/', views.export_optimizations_csv, name='export_optimizations_csv'),
     path('api/analyze-query/', views.AnalyzeQueryAPI.as_view(), name='analyze_query_api'),
     path('api-test/', views.api_test_page, name='api_test_page'),
+    path('analyze/<int:slow_query_id>/', views.analyze_query, name='analyze_query'),
 ]

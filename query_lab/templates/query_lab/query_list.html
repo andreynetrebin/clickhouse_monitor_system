@@ -3,6 +3,11 @@
 {% block title %}Все запросы - Лаборатория запросов{% endblock %}
 
 {% block content %}
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+  {% endfor %}
+{% endif %}
 <div class="card">
     <h2>📋 Все запросы в лаборатории</h2>
     
@@ -47,7 +52,7 @@
                     {{ query.get_status_display }}
                 </span>
                 <strong>
-                    <a href="{% url 'query_detail' query.id %}" style="color: #2c3e50; text-decoration: none;">
+                    <a href="{% url 'query_lab:query_detail' query.id %}" style="color: #2c3e50; text-decoration: none;">
                         Запрос #{{ query.id }}
                     </a>
                 </strong>
@@ -90,7 +95,7 @@
                 {% endif %}
             </div>
             <div>
-                <a href="{% url 'query_detail' query.id %}" class="btn">
+                <a href="{% url 'query_lab:query_detail' query.id %}" class="btn">
                     🔍 Анализировать
                 </a>
             </div>

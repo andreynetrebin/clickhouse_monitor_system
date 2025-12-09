@@ -1,5 +1,6 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib import messages
 from django.db.models import Count, Avg, Q, F, ExpressionWrapper, FloatField, Sum
 from django.db.models.functions import TruncDay, TruncWeek
 from django.utils import timezone
@@ -11,12 +12,15 @@ import json
 from datetime import datetime, timedelta
 import csv
 from .advanced_analyzer import AdvancedQueryAnalyzer
-from .models import SlowQuery, TableAnalysis, IndexRecommendation
+from .models import SlowQuery, TableAnalysis, IndexRecommendation, QueryAnalysisResult
+from monitor.models import ClickHouseInstance
 from .forms import QueryAnalysisForm, QueryOptimizationForm, ResultsForm
 from .optimization_guide import QueryOptimizationGuide
 from .analysis_service import analysis_service
 from clickhouse_client import ClickHouseClient
 
+import logging
+logger = logging.getLogger(__name__)
 
 @login_required
 def lab_dashboard(request):
@@ -556,3 +560,39 @@ class AnalyzeQueryAPI(View):
 def api_test_page(request):
     """Тестовая страница для API анализа запросов"""
     return render(request, 'query_lab/api_test.html')
+
+
+
+
+def analyze_query(request, slow_query_id):
+    slow_query = get_object_or_404(SlowQuery, id=slow_query_id)
+    query_log = slow_query.query_log
+
+    try:
+        instance = ClickHouseInstance.objects.get(name='default')
+        with ClickHouseClient(instance.name) as client:
+            analyzer = AdvancedQueryAnalyzer(client)
+            analysis = analyzer.analyze_with_explain(query_log.query_text)
+
+        QueryAnalysisResult.objects.update_or_create(
+            query_log=query_log,
+            defaults={
+                'complexity_score': analysis.get('complexity_score', 0),
+                'has_full_scan': analysis.get('explain_analysis', {}).get('has_full_scan', False),
+                'has_sorting': analysis.get('explain_analysis', {}).get('has_sorting', False),
+                'has_aggregation': analysis.get('explain_analysis', {}).get('has_aggregation', False),
+                'pipeline_complexity': analysis.get('explain_analysis', {}).get('pipeline_complexity', 0),
+                'table_stats': analysis.get('table_analysis', {}),
+                'recommendations': analysis.get('recommendations', []),
+                'warnings': analysis.get('warnings', []),
+                'explain_plan': analysis.get('explain_output', ''),
+                'explain_pipeline': analysis.get('explain_pipeline', []),
+            }
+        )
+        messages.success(request, "✅ Анализ успешно завершён")
+    except Exception as e:
+        error_msg = f"Ошибка анализа: {e}"
+        logger.error(error_msg, exc_info=True)
+        messages.error(request, error_msg)  # Убедитесь, что шаблон отображает сообщения
+
+    return redirect('query_lab:query_detail', query_id=slow_query_id)
