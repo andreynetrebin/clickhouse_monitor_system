@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import csv
 from .advanced_analyzer import AdvancedQueryAnalyzer
 from .models import SlowQuery, TableAnalysis, IndexRecommendation, QueryAnalysisResult
-from monitor.models import ClickHouseInstance
+from monitor.models import ClickHouseInstance, QueryLog
 from .forms import QueryAnalysisForm, QueryOptimizationForm, ResultsForm
 from .optimization_guide import QueryOptimizationGuide
 from .analysis_service import analysis_service
@@ -67,7 +67,7 @@ def query_detail(request, query_id):
         id=query_id
     )
     # Сохраняем/получаем анализ
-    analysis_result = analysis_service.analyze_and_save(slow_query.query_log)
+    analysis_result = QueryAnalysisResult.objects.filter(query_log=slow_query.query_log).first()
 
     analysis_form = QueryAnalysisForm(instance=slow_query)
     optimization_form = QueryOptimizationForm(instance=slow_query)
@@ -141,15 +141,10 @@ def query_detail(request, query_id):
             slow_query.save()
             return redirect('query_detail', query_id=query_id)
 
-    # Расширенный анализ с EXPLAIN
-    advanced_analysis = {}
-    try:
-
-        with ClickHouseClient('default') as client:
-            analyzer = AdvancedQueryAnalyzer(client)
-            advanced_analysis = analyzer.analyze_with_explain(slow_query.query_log.query_text)
-    except Exception as e:
-        advanced_analysis = {'error': f'Advanced analysis failed: {str(e)}'}
+    # Получаем результат анализа, если он есть (из базы)
+    query_analysis_result = QueryAnalysisResult.objects.filter(
+        query_log=slow_query.query_log
+    ).first()
 
     context = {
         'sq': slow_query,
@@ -160,7 +155,7 @@ def query_detail(request, query_id):
         'query_analysis': query_analysis,
         'best_practices': best_practices,
         'optimized_template': optimized_template,
-        'advanced_analysis': advanced_analysis,
+        'query_analysis_result': query_analysis_result,
         'analysis_result': analysis_result,
         'table_analysis': TableAnalysis.objects.filter(
             table_name__in=analysis_result.table_stats.keys()
@@ -562,37 +557,76 @@ def api_test_page(request):
     return render(request, 'query_lab/api_test.html')
 
 
-
-
 def analyze_query(request, slow_query_id):
     slow_query = get_object_or_404(SlowQuery, id=slow_query_id)
-    query_log = slow_query.query_log
+
+    # Находим последний QueryLog с тем же хешем
+    latest_query_log = QueryLog.objects.filter(
+        normalized_query_hash=slow_query.query_log.normalized_query_hash
+    ).order_by('-query_start_time').first()
+
+    if not latest_query_log:
+        messages.error(request, "Запрос не найден в логах")
+        return redirect('query_lab:query_detail', query_id=slow_query_id)
+
+    # Обновляем привязку, если нужно
+    if latest_query_log.id != slow_query.query_log.id:
+        slow_query.query_log = latest_query_log
+        slow_query.save()
+
+    query_log = latest_query_log
 
     try:
+        query_upper = query_log.query_text.strip().upper()
+        if not query_upper.startswith('SELECT'):
+            # Сохраняем заглушку для не-SELECT
+            QueryAnalysisResult.objects.update_or_create(
+                query_log=query_log,
+                defaults={
+                    'complexity_score': 0,
+                    'has_full_scan': False,
+                    'has_sorting': False,
+                    'has_aggregation': False,
+                    'pipeline_complexity': 0,
+                    'table_stats': {},
+                    'recommendations': ["Запрос типа INSERT/UPDATE не поддерживает EXPLAIN анализ"],
+                    'warnings': [{"message": "EXPLAIN не поддерживается для не-SELECT запросов", "priority": "info"}],
+                    'explain_plan': "",
+                    'explain_pipeline': [],
+                }
+            )
+            messages.info(request, "ℹ️ Анализ не поддерживается для не-SELECT запросов")
+            return redirect('query_lab:query_detail', query_id=slow_query_id)
+
+        # Получаем инстанс ClickHouse
         instance = ClickHouseInstance.objects.get(name='default')
+
+        # Выполняем анализ
         with ClickHouseClient(instance.name) as client:
             analyzer = AdvancedQueryAnalyzer(client)
             analysis = analyzer.analyze_with_explain(query_log.query_text)
 
+        # Сохраняем результат
         QueryAnalysisResult.objects.update_or_create(
             query_log=query_log,
             defaults={
                 'complexity_score': analysis.get('complexity_score', 0),
-                'has_full_scan': analysis.get('explain_analysis', {}).get('has_full_scan', False),
-                'has_sorting': analysis.get('explain_analysis', {}).get('has_sorting', False),
-                'has_aggregation': analysis.get('explain_analysis', {}).get('has_aggregation', False),
-                'pipeline_complexity': analysis.get('explain_analysis', {}).get('pipeline_complexity', 0),
+                'has_full_scan': analysis.get('has_full_scan', False),
+                'has_sorting': analysis.get('has_sorting', False),
+                'has_aggregation': analysis.get('has_aggregation', False),
+                'pipeline_complexity': analysis.get('pipeline_complexity', 0),
                 'table_stats': analysis.get('table_analysis', {}),
                 'recommendations': analysis.get('recommendations', []),
                 'warnings': analysis.get('warnings', []),
-                'explain_plan': analysis.get('explain_output', ''),
+                'explain_plan': analysis.get('explain_output', analysis.get('explain_plan', '')),
                 'explain_pipeline': analysis.get('explain_pipeline', []),
             }
         )
         messages.success(request, "✅ Анализ успешно завершён")
+
     except Exception as e:
         error_msg = f"Ошибка анализа: {e}"
         logger.error(error_msg, exc_info=True)
-        messages.error(request, error_msg)  # Убедитесь, что шаблон отображает сообщения
+        messages.error(request, error_msg)
 
     return redirect('query_lab:query_detail', query_id=slow_query_id)

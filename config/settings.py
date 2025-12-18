@@ -43,7 +43,7 @@ INSTALLED_APPS = [
     'monitor',
     'query_lab',
     'django.contrib.humanize',
-    # 'clickhouse_client',  # Не добавляем - это не Django app, а Python модуль
+    'data_registry',
 ]
 
 MIDDLEWARE = [
@@ -150,3 +150,14 @@ MONITORING_CONFIG = {
     'max_query_length': 10000,
     'retention_days': 30,
 }
+
+
+
+# Airflow metadata
+AIRFLOW_CLICKHOUSE_DB = "NetrebinAA"
+AIRFLOW_DAG_METADATA_TABLE = "`РасписаниеAirflow`"
+
+# Data Registry Google Sheet
+DATA_REGISTRY_SPREADSHEET_ID = "15PXNyqsJBKY7VMdbPGKbVZg3whdEQezFdCctDUPa8sY"
+DATA_REGISTRY_SHEET_NAME = "Реестр данных"
+SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, 'service_account.json')

@@ -190,3 +190,5 @@ fabric.properties
 *.key
 media
 *.sqlite3
+service_account.json
+airflow_data.txt
