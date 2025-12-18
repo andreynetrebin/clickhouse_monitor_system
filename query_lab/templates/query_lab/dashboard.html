@@ -64,7 +64,7 @@
                     {{ query.get_status_display }}
                 </span>
                 <strong>
-                    <a href="{% url 'query_detail' query.id %}" style="color: #2c3e50; text-decoration: none;">
+                    <a href="{% url 'query_lab:query_detail' query.id %}" style="color: #2c3e50; text-decoration: none;">
                         Запрос #{{ query.id }}
                     </a>
                 </strong>
@@ -110,7 +110,7 @@
     {% endfor %}
     
     <div style="text-align: center; margin-top: 1rem;">
-        <a href="{% url 'query_list' %}" class="btn">
+        <a href="{% url 'query_lab:query_list' %}" class="btn">
             📋 Показать все запросы
         </a>
     </div>

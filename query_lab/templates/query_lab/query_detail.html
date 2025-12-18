@@ -4,6 +4,12 @@
 {% block title %}Запрос #{{ sq.id }} - Лаборатория запросов{% endblock %}
 
 {% block content %}
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+  {% endfor %}
+{% endif %}
+
 <div class="card">
     <!-- Заголовок, статус и кнопка анализа -->
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem;">
@@ -97,64 +103,18 @@
         <pre class="sql-code" style="background: #2c3e50; color: #ecf0f1; padding: 1rem; border-radius: 4px; overflow-x: auto;">{{ query_log.query_text }}</pre>
     </div>
 
-    <!-- Результаты анализа -->
-    {% if query_analysis %}
-    <div style="margin-bottom: 2rem;">
-        <h3>🔬 Результаты анализа</h3>
-
-        <!-- Сложность -->
-        <div style="background: #2c3e50; color: white; padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <div>
-                    <div style="font-size: 1.5rem; font-weight: bold;">Сложность: {{ query_analysis.complexity_score }}/100</div>
-                </div>
-                {% if query_analysis.has_full_scan %}
-                <div style="background: #e74c3c; padding: 0.25rem 0.75rem; border-radius: 12px;">⚠️ Full scan</div>
-                {% endif %}
-                {% if query_analysis.has_sorting %}
-                <div style="background: #f39c12; padding: 0.25rem 0.75rem; border-radius: 12px;">🔄 Сортировка</div>
-                {% endif %}
-                {% if query_analysis.has_aggregation %}
-                <div style="background: #3498db; padding: 0.25rem 0.75rem; border-radius: 12px;">🧮 Агрегация</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Рекомендации -->
-        {% if query_analysis.recommendations %}
-        <div style="margin-bottom: 1rem;">
-            <h4>💡 Рекомендации:</h4>
-            <ul style="padding-left: 1.5rem;">
-                {% for rec in query_analysis.recommendations %}
-                <li>{{ rec }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-        {% endif %}
-
-        <!-- Предупреждения -->
-        {% if query_analysis.warnings %}
-        <div style="margin-bottom: 1rem;">
-            <h4>⚠️ Предупреждения:</h4>
-            {% for w in query_analysis.warnings %}
-            <div style="margin-left: 1.5rem; margin-bottom: 0.3rem;">• {{ w.message }}</div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- EXPLAIN (если есть) -->
-        {% if query_analysis.explain_plan %}
-        <details>
-            <summary style="cursor: pointer; margin-bottom: 0.5rem; color: #3498db;">📋 Показать EXPLAIN indexes = 1</summary>
-            <pre style="background: #1a1a1a; color: #00ff00; padding: 1rem; border-radius: 4px; overflow-x: auto;">{{ query_analysis.explain_plan }}</pre>
-        </details>
-        {% endif %}
-    </div>
+    {% if query_analysis_result %}
+      <h3>🔬 Результаты анализа</h3>
+      <p>Сложность: {{ query_analysis_result.complexity_score }}/100</p>
+      {% if query_analysis_result.recommendations %}
+        <ul>
+          {% for rec in query_analysis_result.recommendations %}
+            <li>{{ rec }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
     {% else %}
-    <div style="background: #f8f9fa; padding: 2rem; text-align: center; border-radius: 4px; margin-bottom: 2rem;">
-        <div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div>
-        <p>Анализ ещё не запускался. Нажмите «Запустить анализ» выше.</p>
-    </div>
+      <p>Анализ не запускался. Нажмите «Запустить анализ», чтобы получить рекомендации.</p>
     {% endif %}
 
     <!-- Оптимизированный запрос (если есть) -->

@@ -6,17 +6,13 @@ from clickhouse_driver import Client as ClickhouseDriver
 from clickhouse_driver.errors import Error as ClickhouseError
 
 from .config import ClickHouseConfig
-from .exceptions import (
-    ClickHouseConnectionError,
-    ClickHouseQueryError,
-    ClickHouseTimeoutError
-)
+from .exceptions import ClickHouseConnectionError
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class QueryResult:
+class ClickHouseQueryResult:
     """Результат выполнения запроса"""
     data: List[Tuple]
     columns: List[str]
@@ -28,7 +24,8 @@ class QueryResult:
 
 class ClickHouseClient:
     """
-    Клиент для работы с ClickHouse с поддержкой retry и error handling
+    Потокобезопасный клиент для работы с ClickHouse.
+    Каждый экземпляр создаёт **отдельное подключение**.
     """
 
     def __init__(self, instance_name: str = 'default', max_retries: int = 3, retry_delay: float = 1.0):
@@ -39,12 +36,12 @@ class ClickHouseClient:
         self._config = ClickHouseConfig.get_connection_config(instance_name)
 
     def __enter__(self):
-        """Контекстный менеджер для автоматического подключения"""
+        """Контекстный менеджер: создаёт подключение при входе"""
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Контекстный менеджер для автоматического отключения"""
+        """Контекстный менеджер: закрывает подключение при выходе"""
         self.disconnect()
 
     def connect(self) -> None:
@@ -54,10 +51,10 @@ class ClickHouseClient:
 
         try:
             self._client = ClickhouseDriver(**self._config)
-            logger.info(f"Connected to ClickHouse instance: {self.instance_name}")
+            logger.debug(f"Connected to ClickHouse: {self.instance_name}")
         except Exception as e:
             raise ClickHouseConnectionError(
-                f"Failed to connect to ClickHouse instance '{self.instance_name}': {e}"
+                f"Failed to connect to ClickHouse '{self.instance_name}': {e}"
             ) from e
 
     def disconnect(self) -> None:
@@ -65,28 +62,20 @@ class ClickHouseClient:
         if self._client is not None:
             try:
                 self._client.disconnect()
-                logger.debug(f"Disconnected from ClickHouse instance: {self.instance_name}")
+                logger.debug(f"Disconnected from ClickHouse: {self.instance_name}")
             except Exception as e:
-                logger.warning(f"Error disconnecting from ClickHouse: {e}")
+                logger.warning(f"Error disconnecting: {e}")
             finally:
-                self._client = None
+                self._client = None  # ← ВАЖНО: сначала disconnect(), потом = None
 
     def execute_query(
-            self,
-            query: str,
-            params: Optional[Dict] = None,
-            with_column_types: bool = True
-    ) -> QueryResult:
+        self,
+        query: str,
+        params: Optional[Dict] = None,
+        with_column_types: bool = True
+    ) -> ClickHouseQueryResult:
         """
-        Выполнить запрос с поддержкой retry и обработкой ошибок
-
-        Args:
-            query: SQL запрос
-            params: Параметры для запроса
-            with_column_types: Возвращать информацию о колонках
-
-        Returns:
-            QueryResult с данными и метаинформацией
+        Выполнить запрос с поддержкой retry и обработкой ошибок.
         """
         start_time = time.time()
 
@@ -94,7 +83,6 @@ class ClickHouseClient:
             try:
                 self.connect()
 
-                # Выполняем запрос
                 result = self._client.execute(
                     query,
                     params=params,
@@ -103,7 +91,6 @@ class ClickHouseClient:
 
                 execution_time = time.time() - start_time
 
-                # Формируем результат
                 if with_column_types and result:
                     data, columns_with_types = result
                     columns = [col[0] for col in columns_with_types]
@@ -111,30 +98,22 @@ class ClickHouseClient:
                     data = result
                     columns = []
 
-                # Получаем статистику выполнения если доступно
-                rows_read = self._get_rows_read()
-                bytes_read = self._get_bytes_read()
-
-                logger.debug(
-                    f"Query executed successfully in {execution_time:.3f}s "
-                    f"(attempt {attempt + 1}): {query[:100]}..."
-                )
-
-                return QueryResult(
+                return ClickHouseQueryResult(
                     data=data,
                     columns=columns,
                     execution_time=execution_time,
-                    rows_read=rows_read,
-                    bytes_read=bytes_read
+                    rows_read=0,
+                    bytes_read=0,
+                    error=None
                 )
 
             except ClickhouseError as e:
                 execution_time = time.time() - start_time
-                error_msg = f"ClickHouse error on attempt {attempt + 1}: {e}"
+                error_msg = f"ClickHouse error (attempt {attempt + 1}): {e}"
 
                 if attempt == self.max_retries:
-                    logger.error(f"Query failed after {self.max_retries} attempts: {error_msg}")
-                    return QueryResult(
+                    logger.error(f"Query failed after {self.max_retries + 1} attempts: {error_msg}")
+                    return ClickHouseQueryResult(
                         data=[],
                         columns=[],
                         execution_time=execution_time,
@@ -146,9 +125,8 @@ class ClickHouseClient:
 
             except Exception as e:
                 execution_time = time.time() - start_time
-                error_msg = f"Unexpected error on attempt {attempt + 1}: {e}"
+                error_msg = f"Unexpected error: {e}"
                 logger.error(error_msg)
-
                 return QueryResult(
                     data=[],
                     columns=[],
@@ -156,64 +134,11 @@ class ClickHouseClient:
                     error=error_msg
                 )
 
-    def _get_rows_read(self) -> int:
-        """Получить количество прочитанных строк из последнего запроса"""
-        try:
-            if self._client:
-                result = self._client.execute('SELECT read_rows FROM system.query_log ORDER BY event_time DESC LIMIT 1')
-                return result[0][0] if result else 0
-        except Exception:
-            pass
-        return 0
-
-    def _get_bytes_read(self) -> int:
-        """Получить количество прочитанных байт из последнего запроса"""
-        try:
-            if self._client:
-                result = self._client.execute(
-                    'SELECT read_bytes FROM system.query_log ORDER BY event_time DESC LIMIT 1')
-                return result[0][0] if result else 0
-        except Exception:
-            pass
-        return 0
-
     def test_connection(self) -> bool:
         """Проверить подключение простым запросом"""
         try:
-            result = self.execute_query('SELECT 1 as test')
+            result = self.execute_query('SELECT 1')
             return result.error is None and len(result.data) > 0
         except Exception as e:
             logger.error(f"Connection test failed: {e}")
             return False
-
-    def get_server_info(self) -> Dict[str, Any]:
-        """Получить информацию о сервере ClickHouse"""
-        try:
-            version_result = self.execute_query('SELECT version()')
-            uptime_result = self.execute_query('SELECT uptime()')
-
-            return {
-                'version': version_result.data[0][0] if version_result.data else 'unknown',
-                'uptime_seconds': uptime_result.data[0][0] if uptime_result.data else 0,
-                'instance_name': self.instance_name,
-            }
-        except Exception as e:
-            logger.error(f"Failed to get server info: {e}")
-            return {
-                'version': 'unknown',
-                'uptime_seconds': 0,
-                'instance_name': self.instance_name,
-                'error': str(e)
-            }
-
-
-# Синглтон для быстрого доступа к дефолтному клиенту
-_default_client: Optional[ClickHouseClient] = None
-
-
-def get_default_client() -> ClickHouseClient:
-    """Получить дефолтный клиент (singleton)"""
-    global _default_client
-    if _default_client is None:
-        _default_client = ClickHouseClient()
-    return _default_client
